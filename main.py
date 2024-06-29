@@ -3,17 +3,25 @@ from dify_client import ChatClient
 from fastapi import FastAPI, Form
 from decouple import config
 from utils import send_message, logger, is_rate_limited
-import auth
+from keycloak_utils import get_user_by_phone
 app = FastAPI()
 
 dify_key = config("DIFY_KEY")
 chat_client = ChatClient(dify_key)
 
+def is_user_authorized(phone_number):
+    if "whatsapp" in phone_number:
+        phone_number = phone_number.split(':')[1].strip()
+        print(phone_number)
+    users = get_user_by_phone(phone_number)
+    if len(users) == 1:
+        return True
+    return False
 
 @app.post("/message")
 def reply(Body: str = Form(), From: str = Form()):
     try:
-        if not auth.get_user_by_phone(From):
+        if not is_user_authorized(From):
             logger.info(f"user not present with phone number ${From}")
             send_message(From, "Signup to continue chating with Ask Nithyananda, please visit +1 2518100108")
             return
