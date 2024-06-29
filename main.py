@@ -1,18 +1,26 @@
-  
 import openai
 from dify_client import ChatClient
 from fastapi import FastAPI, Form
 from decouple import config
-from utils import send_message, logger
-
+from utils import send_message, logger, is_rate_limited
+import auth
 app = FastAPI()
 
 dify_key = config("DIFY_KEY")
 chat_client = ChatClient(dify_key)
 
+
 @app.post("/message")
 def reply(Body: str = Form(), From: str = Form()):
     try:
+        if not auth.get_user_by_phone(From):
+            logger.info(f"user not present with phone number ${From}")
+            send_message(From, "Signup to continue chating with Ask Nithyananda, please visit +1 2518100108")
+            return
+        if is_rate_limited(From):
+            logger.info(f"rate limit exceed for ${From}")
+            return
+
         chat_client.base_url = "http://brightpath.koogle.sk/v1"
 
         # Check if there is an existing conversation ID for the user
@@ -23,8 +31,6 @@ def reply(Body: str = Form(), From: str = Form()):
 
         if "data" in conversations.json():
             conversation_list = conversations.json().get("data")
-            # logger.info(f"the conversation_list was {conversation_list}")
-            # logger.info(f"the type of conversation_list was {type(conversation_list)}")
             if len(conversation_list) > 0:
                 conversation_id = conversation_list[0].get("id")
 
@@ -36,11 +42,6 @@ def reply(Body: str = Form(), From: str = Form()):
             response.raise_for_status()
             result = response.json().get("answer")
             logger.info(f"The response to be sent was {result}")
-
-            # Save the new conversation ID
-            conversation_id = response.json().get("conversation_id")
-            user_conversations[From] = conversation_id
-
             # Send message back to the sender's number
             send_message(From, result)
             return {"status": "Message sent successfully"}
