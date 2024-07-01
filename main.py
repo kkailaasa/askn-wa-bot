@@ -3,20 +3,12 @@ from dify_client import ChatClient
 from fastapi import FastAPI, Form
 from decouple import config
 from utils import send_message, logger, is_rate_limited
-from keycloak_utils import get_user_by_phone
+from auth import is_user_authorized
+
 app = FastAPI()
 
 dify_key = config("DIFY_KEY")
 chat_client = ChatClient(dify_key)
-
-def is_user_authorized(phone_number):
-    if "whatsapp" in phone_number:
-        phone_number = phone_number.split(':')[1].strip()
-        print(phone_number)
-    users = get_user_by_phone(phone_number)
-    if len(users) == 1:
-        return True
-    return False
 
 @app.post("/message")
 def reply(Body: str = Form(), From: str = Form()):
