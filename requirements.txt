@@ -8,3 +8,4 @@ pyngrok
 dify-client
 redis
 python-keycloak
+celery
