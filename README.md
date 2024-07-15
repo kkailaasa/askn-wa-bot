@@ -1,7 +1,8 @@
 # prerequisites
-python3
-git
-db - redis
+- python3
+- git
+- redis
+- tmux
 Redis-server is used for caching the user login, conversation id, and rate limiting. It is also used by celery as broker.
 
 # commands to run
