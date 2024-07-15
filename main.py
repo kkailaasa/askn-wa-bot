@@ -5,5 +5,6 @@ app = FastAPI()
 
 @app.post("/message")
 def reply(Body: str = Form(), From: str = Form()):
+    print("twilio has been called")
     process_question.delay(Body, From)
     return {"status": "Task added"}
