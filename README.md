@@ -13,3 +13,33 @@ commands need to run from the project_root_folder
 to run it in detached mode you can use nohup at the begining of the command and & at the end
 - then run the celery command `celery -A scheduler.tasks worker --loglevel=info`
 to run this in detached mode you can use nohup at the begining of the command and & at the end
+
+## Deploying with Docker
+
+Follow these steps to deploy the application using Docker:
+
+0. Clone the Git repository:
+    ```bash
+    git clone <repository-url>
+    ```
+
+1. Update your `.env` file with the necessary environment variables.
+
+2. Build the Docker image:
+    ```bash
+    docker build -t an-wa-bot:v1 .
+    ```
+
+3. Run Docker Compose:
+    ```bash
+    docker compose up -d
+    ```
+
+4. Check the logs to ensure everything is running correctly:
+    ```bash
+    docker compose logs -f
+    ```
+
+5. Configure your reverse proxy according to your setup.
+
+6. Configure Cloudflare as needed for your deployment.
