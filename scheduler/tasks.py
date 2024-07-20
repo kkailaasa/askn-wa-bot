@@ -6,7 +6,7 @@ from decouple import config
 from utils import send_message, logger, is_rate_limited
 from auth import is_user_authorized
 
-app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
+app = Celery('tasks', broker='redis://redis:6379/0', backend='redis://redis:6379/0')
 app.conf.update(
     task_serializer='json',
     accept_content=['json'],
