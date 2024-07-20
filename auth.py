@@ -1,6 +1,6 @@
 from keycloak_utils import get_user_by_phone
 
-redis_client = redis.StrictRedis(host='localhost', port=6379)
+redis_client = redis.StrictRedis(host='redis', port=6379)
 # 7 days
 AUTH_TIME_WINDOW = 7 * 24 * 60 * 60
 
