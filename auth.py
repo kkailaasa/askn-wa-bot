@@ -1,4 +1,5 @@
 from keycloak_utils import get_user_by_phone
+import redis
 
 redis_client = redis.StrictRedis(host='redis', port=6379)
 # 7 days
