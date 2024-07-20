@@ -32,7 +32,7 @@ def send_message(to_number, body_text):
 
 # redis rate limiting
 
-redis_client = redis.StrictRedis(host='localhost', port=6379)
+redis_client = redis.StrictRedis(host='redis', port=6379)
 
 RATE_LIMIT = 2 # NO OF MESSAGES PER NUMBER 
 TIME_WINDOW = 60 # IN SECONDS
