@@ -1,4 +1,4 @@
-from keycloak import get_user_by_phone
+from keycloak_utils import get_user_by_phone
 
 redis_client = redis.StrictRedis(host='localhost', port=6379)
 # 7 days
@@ -14,5 +14,5 @@ def is_user_authorized(phone_number):
         if len(users) == 1:
             redis_client.setex(key, AUTH_TIME_WINDOW, 1)
             return True
-    return False
-return True
+        return False
+    return True
