@@ -1,0 +1,65 @@
+version: '3.8'
+services:
+  web:
+    image: an-wa-bot:v1
+    ports:
+      - "8050:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      KEYCLOAK_SERVER_URL: ${KEYCLOAK_SERVER_URL}
+      KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_USER_NAME: ${KEYCLOAK_USER_NAME}
+      KEYCLOAK_PASSWORD: ${KEYCLOAK_PASSWORD}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_NUMBER: ${TWILIO_NUMBER}
+      DIFY_KEY: ${DIFY_KEY}
+    depends_on:
+      - redis
+    networks:
+      - whatsapp_bot_network
+
+  redis:
+    image: "redis:alpine"
+    ports:
+      - "6379:6379"
+    networks:
+      - whatsapp_bot_network
+
+  celery_worker:
+    image: an-wa-bot:v1
+    command: celery -A scheduler.tasks worker --loglevel=info
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      DIFY_KEY: ${DIFY_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_NUMBER: ${TWILIO_NUMBER}
+      KEYCLOAK_SERVER_URL: ${KEYCLOAK_SERVER_URL}
+      KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_USER_NAME: ${KEYCLOAK_USER_NAME}
+      KEYCLOAK_PASSWORD: ${KEYCLOAK_PASSWORD}
+    depends_on:
+      - redis
+    networks:
+      - whatsapp_bot_network
+
+  celery_beat:
+    image: an-wa-bot:v1
+    command: celery -A scheduler.tasks beat --loglevel=info
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      - redis
+    networks:
+      - whatsapp_bot_network
+
+networks:
+  whatsapp_bot_network:
+    driver: bridge
