@@ -22,7 +22,7 @@ services:
   celery_worker:
     image: an-wa-bot:v1
     container_name: celery_worker
-    command: celery -A scheduler.celery_app worker --loglevel=info
+    command: celery -A scheduler.tasks worker --loglevel=info
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
