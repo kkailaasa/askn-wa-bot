@@ -1,24 +1,17 @@
-# Use an official Python runtime as a parent image
-FROM python:3.9-slim
+# Use the official Python image as a base
+FROM python:3.10
 
-# Set the working directory in the container
+# Set the working directory
 WORKDIR /app
 
-# Copy the current directory contents into the container at /app
-COPY . /app
+# Copy the requirements file into the container
+COPY requirements.txt .
 
-# Install any needed packages specified in requirements.txt
+# Install the Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Make port 80 available to the world outside this container
-EXPOSE 8000
+# Copy the FastAPI application code into the container
+COPY . .
 
-# Define environment variable
-ENV NAME=WhatsAppBot
-
-# Use an entrypoint script to handle both the app and Celery worker
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# Run the entrypoint script when the container launches
-ENTRYPOINT ["/entrypoint.sh"]
+# Run the FastAPI application with Uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8050"]
