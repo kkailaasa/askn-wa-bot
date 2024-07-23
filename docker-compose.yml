@@ -1,23 +1,26 @@
 version: '3.8'
-
 services:
   web:
     image: an-wa-bot:v1
-    container_name: fastapi_web
+    container_name: ask_nithyananda_web
     ports:
-            - "8050:8050"
+      - "8050:8050"
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     depends_on:
       - redis
       - celery_worker
+    volumes:
+      - ./app_data:/app/data
 
   redis:
     image: redis:6.2
     container_name: redis
     ports:
       - "6379:6379"
+    volumes:
+      - ./redis_data:/data
 
   celery_worker:
     image: an-wa-bot:v1
@@ -28,3 +31,5 @@ services:
       - REDIS_PORT=6379
     depends_on:
       - redis
+    volumes:
+      - ./app_data:/app/data
