@@ -13,14 +13,17 @@ services:
       - celery_worker
     volumes:
       - ./app_data:/app/data
+    networks:
+      - internal
 
   redis:
     image: redis:6.2
     container_name: redis
-    ports:
-      - "6379:6379"
     volumes:
       - ./redis_data:/data
+    command: ["redis-server", "--bind", "127.0.0.1", "--bind", "0.0.0.0", "--protected-mode", "yes"]
+    networks:
+      - internal
 
   celery_worker:
     image: an-wa-bot:v1
@@ -33,3 +36,9 @@ services:
       - redis
     volumes:
       - ./app_data:/app/data
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
