@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% load django_bootstrap5 %}
+
+{% block proceed %}
+
+{% endblock%}
+
+{% block content %}
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/css/intlTelInput.css"/>
+  <script src="https://code.jquery.com/jquery-3.6.0.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/intlTelInput.min.js"></script>
+<br/>
+  <h2>User Registration Form</h2>
+<br/>
+<br/>
+  <form id="registration_form" method="post" class="row g-3 needs-validation" novalidate>
+    {% csrf_token %}
+    {% bootstrap_form form layout='vertical' %}
+    <button type="submit" class="btn btn-primary color-kailasa" onclick="registerUser(event)">Register</button>
+  </form>
+
+<script>
+  $(document).ready(function() {
+    $('.invalid-feedback').show();
+
+
+    label_list = $('label[for="id_phone_number"]');
+    if(label_list.length > 0){
+      phone_label = label_list[0];
+      phone_label.outerHTML = phone_label.outerHTML + "<br /> ";
+    }
+  });
+
+  const phoneInputField = document.querySelector("#id_phone_number");
+  const phoneInput = window.intlTelInput(phoneInputField, {
+    utilsScript:"https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js",
+  });
+
+  function registerUser(event) {
+    event.preventDefault();
+    phoneInputField.value = phoneInput.getNumber();
+    document.getElementById("registration_form").submit();
+  }
+</script>
+{% endblock content %}

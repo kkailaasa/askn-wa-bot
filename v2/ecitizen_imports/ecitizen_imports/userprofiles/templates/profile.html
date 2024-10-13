@@ -1,0 +1,200 @@
+<!-- profile.html -->
+
+{% extends 'base.html' %}
+{% load static %}
+{% load crispy_forms_tags %}
+{% load django_bootstrap5 %}
+
+{% block content %}
+
+
+{% if user %}
+    <!--<h4>Username: {{ user.username }}</h4>-->
+{% else %}
+    <p>No user found.</p>
+{% endif %}
+{% if epassport and epassport.epassport_number%}
+    <!-- Display EPassportNumber fields -->
+    <h4>E-Passport Number: {{ epassport.epassport_number }}</h4>
+    <!-- Add more fields as needed -->
+{% endif %}
+<br/>
+<div class="container">
+    {% if profile_form %}
+        <h4>Profile Info</h4>
+        {{profile_form.errors}}
+        <!-- Display UserProfile fields -->
+        <form method="POST" class="form">
+            {% csrf_token %}
+            {% if redirect_to %}
+                <input type="hidden" name="next" value={{next}} />
+            {% endif %}
+            <div class="row mb-3">
+                <label for="id_first_name" class="form-label">First Name</label>
+                <div class="col-12">
+                    {{profile_form.first_name}}
+                </div>
+            </div>
+            <div class="row mb-3">
+                <label for="id_last_name" class="form-label">Last Name</label>
+                <div class="col-12">
+                    {{profile_form.last_name}}
+                </div>
+            </div>
+            <div class="row mb-3">
+                <label for="id_spiritual_name" class="form-label">Spiritual Name (if any)</label>
+                <div class="col-12">
+                    {{profile_form.spiritual_name}}
+                </div>
+            </div>
+            <div class="row mb-3">
+                <label for="{{ profile_form.zone.id_for_label }}" class="form-label">{{ profile_form.zone.label }}</label>
+                <div class="col-12">
+                    <select id="{{ profile_form.zone.id_for_label }}" name="{{ profile_form.zone.html_name }}">
+                    {% for choice in profile_form.zone.field.choices %}
+                    <option value="{{ choice.0 }}" 
+                    {% if choice.0 == profile_form.zone.value %}selected{% endif %} >{{ choice.1 }}</option>
+                    {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12">{{ profile_form.zone.errors }}</div>
+            </div>
+            <div class="row mb-3">
+                <label for="{{ profile_form.date_of_birth.id_for_label }}" class="form-label">{{ profile_form.date_of_birth.label }}</label>
+                <div class="col-12">
+                    {{ profile_form.date_of_birth }}
+                </div>
+                <div class="col-12">{{ profile_form.date_of_birth.errors }}</div>
+            </div>
+            <div class="row mb-3">
+                <label for="{{ profile_form.gender.id_for_label }}" class="form-label">{{ profile_form.gender.label }}</label>
+                <div class="col-12">
+                    <select id="{{ profile_form.gender.id_for_label }}" name="{{ profile_form.gender.html_name }}" required>
+                    {% for choice in profile_form.gender.field.choices %}
+                    <option value="{{ choice.0 }}" 
+                    {% if choice.0 == profile_form.gender.value %}selected{% endif %}>{{ choice.1 }}</option>
+                    {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12">{{ profile_form.gender.errors }}</div>
+            </div>
+
+            <div class="row mb-3">
+                <label for="{{ profile_form.email.id_for_label }}" class="form-label">{{ profile_form.email.label }}</label>
+                <div class="col-12">
+                    <input type="email" id="{{ profile_form.email.id_for_label }}" name="{{profile_form.email.html_name}}" 
+                        value="{{profile_form.email.value}}" readonly />
+                </div>
+            </div>
+
+            <div class="row mb-3">
+                <label for="{{ profile_form.phone_number.id_for_label }}" 
+                    class="form-label">{{ profile_form.phone_number.label }}</label>
+                <div class="col-12">
+                    {{ profile_form.phone_number }}
+                </div>
+                <div class="col-12">
+                    {% if profile_form.phone_number.errors %}
+                        {{ profile_form.phone_number.errors }}
+                    {% else %}
+                        Please enter the phone number with country code For eg +12125552368
+                    {% endif %}
+                </div>
+            </div>
+            <div class="row mb-3">
+                <label for="{{ profile_form.country.id_for_label }}" 
+                    class="form-label">{{ profile_form.country.label }}</label>
+                <div class="col-12">
+                    {{ profile_form.country }}
+                </div>
+                <div class="col-12">{{ profile_form.country.errors }}</div>
+            </div>
+            <div class="row mb-3">
+                <label for="{{ profile_form.state.id_for_label }}" 
+                    class="form-label">{{ profile_form.state.label }}</label>
+                <div class="col-12">
+                    <select id="{{ profile_form.state.id_for_label }}" name="{{ profile_form.state.html_name }}">
+                        <option value="">---------</option>
+                    </select>
+                </div>
+                <div class="col-12">{{ profile_form.state.errors }}</div>
+            </div>
+            <div class="row mb-3">
+                <label for="{{ profile_form.city.id_for_label }}" 
+                    class="form-label">{{ profile_form.city.label }}</label>
+                <div class="col-12">
+                    <select id="{{ profile_form.city.id_for_label }}" name="{{ profile_form.city.html_name }}">
+                        <option value="">---------</option>
+                    </select>
+                </div>
+                <div class="col-12">{{ profile_form.city.errors }}</div>
+            </div>
+            <div class="row mb-3">
+                <label for="{{ profile_form.address_1.id_for_label }}" 
+                    class="form-label">{{ profile_form.address_1.label }}</label>
+                <div class="col-12">
+                    {{ profile_form.address_1 }}
+                </div>
+            </div>
+            <div class="row mb-3">
+                <label for="{{ profile_form.postal_code.id_for_label }}" 
+                    class="form-label">{{ profile_form.postal_code.label }}</label>
+                <div class="col-12">{{ profile_form.postal_code }}</div>
+                <div class="col-12">{{ profile_form.postal_code.errors }}</div>
+            </div>
+            <div class="row mb-3">
+                <label for="{{ profile_form.content.id_for_label }}" class="form-label">{{ profile_form.content.label }}</label>
+                <div class="col-12">
+                    <input type="hidden" id="{{ profile_form.content.id_for_label }}" 
+                        name="{{profile_form.content.html_name}}" value="{{consent_content}}"/>
+                </div>
+            </div>
+            {% bootstrap_button button_type="submit" content="Save" %}
+            {% bootstrap_button button_type="reset" content="Reset" %}
+        </form>
+    {% endif %}
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.0.slim.min.js" 
+   integrity="sha256-tG5mcZUtJsZvyKAxYLVXrmjKBVLd6VpVccqz/r4ypFE=" 
+   crossorigin="anonymous"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/18.1.6/js/intlTelInput.min.js" 
+   integrity="sha512-TJcZiZrZVz21UAAVhWdDyVWIBVa7mGSWk3jrmrq/laOjpoi+bSsCSN51WG5YKwGp4ZmOhlg5PZZKzR9hReehiw==" 
+   crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/18.1.6/css/intlTelInput.css" 
+   integrity="sha512-Ky9SFgkYYIAWfFbsz+Tvrs+kpW7mgyQu+glUEnVV60+nxDPe64w0CrYRSMKsmTwJtN2jXNmU5SBgcyzKOwsn3w==" 
+   crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+<link
+   rel="stylesheet"
+   href="https://cdnjs.cloudflare.com/ajax/libs/selectize.js/0.15.2/css/selectize.default.min.css"
+   integrity="sha512-pTaEn+6gF1IeWv3W1+7X7eM60TFu/agjgoHmYhAfLEU8Phuf6JKiiE8YmsNC0aCgQv4192s4Vai8YZ6VNM6vyQ=="
+   crossorigin="anonymous"
+   referrerpolicy="no-referrer"
+ />
+<script
+   src="https://cdnjs.cloudflare.com/ajax/libs/selectize.js/0.15.2/js/selectize.min.js"
+   integrity="sha512-IOebNkvA/HZjMM7MxL0NYeLYEalloZ8ckak+NDtOViP7oiYzG5vn6WVXyrJDiJPhl4yRdmNAG49iuLmhkUdVsQ=="
+   crossorigin="anonymous"
+   referrerpolicy="no-referrer"
+></script>
+   
+<script src="{% static 'autocomplete.js' %}"></script>
+ 
+<script>
+    var input = document.querySelector("#id_phone_number");
+    var iti = window.intlTelInput(input, {
+      preferredCountries: ["us", "cn", "ca", "gb"], // Specify preferred countries
+      separateDialCode: true, // Show separate dial code
+    });
+
+    $(document).ready(function() {
+        autocomplete_dropdowns('id_country', 'id_state', 'id_city', 
+                                '{{profile_form.state.value}}',
+                                '{{profile_form.city.value}}')
+    });
+</script>
+
+{% endblock %}

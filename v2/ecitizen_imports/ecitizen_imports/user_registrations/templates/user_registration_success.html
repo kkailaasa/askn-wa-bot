@@ -1,0 +1,24 @@
+<!-- registration_success.html -->
+{% extends 'base.html' %}
+
+{% block proceed %}
+
+{% endblock%}
+
+{% block content %}
+  <div class="container">
+    <div class="row">
+      <div class="col-md-6 offset-md-3">
+        <div class="card mt-5">
+          <div class="card-body">
+            <h2 class="card-title">Registration Successful</h2>
+            <p class="card-text">Thank you for registering. Your account has been successfully created.</p>
+            <p class="card-text">An email has been sent to your registered email address. Please check your inbox and click the verification link to activate your account.</p>
+            <p class="card-text">If you don't see the email in your inbox, please check your spam or junk folder.</p>
+            <p class="card-text">Once your account is verified, you can <a href="/events">login</a> to access your account.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
