@@ -2,6 +2,7 @@ from fastapi import APIRouter, Form, HTTPException, Depends
 from tasks.celery_tasks import process_question
 from services.ecitizen_auth import get_user_by_email, get_user_by_phone
 from services.auth import get_api_key
+from typing import Optional
 from pydantic import BaseModel, EmailStr
 
 router = APIRouter()
@@ -15,10 +16,10 @@ class PhoneRequest(BaseModel):
 class UserResponse(BaseModel):
     email: str
     enabled: bool
-    phoneType: str | None
-    phoneNumber: str | None
-    gender: str | None
-    phoneNumberVerified: bool | None
+    phoneType: Optional[str]
+    phoneNumber: Optional[str]
+    gender: Optional[str]
+    phoneNumberVerified: Optional[bool]
     firstName: str
     lastName: str
 
