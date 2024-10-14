@@ -20,6 +20,9 @@ services:
 
   redis:
     image: "redis:alpine"
+    volumes:
+      - ./data/redis_data:/data
+    command: redis-server --appendonly yes
 
   celery_beat:
     build: .
@@ -28,3 +31,6 @@ services:
       - redis
     env_file:
       - .env
+
+volumes:
+  redis_data:

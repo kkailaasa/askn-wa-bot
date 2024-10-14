@@ -71,3 +71,7 @@ htmlcov/
 *.bak
 *.swp
 *.tmp
+
+# Redis data
+redis_data/*
+!redis_data/.gitkeep

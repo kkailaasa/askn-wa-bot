@@ -22,22 +22,15 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_URL: str = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 
-    # Database Configuration
-    DB_HOST: str
-    DB_PORT: str
-    DB_NAME: str
-    DB_USER: str
-    DB_PASSWORD: str
-
     # Authorization
-    API_KEY: str  # New: API key for authentication
+    API_KEY: str
 
     # FastAPI Configuration
     PORT: str = "8000"
 
     # Celery Configuration
-    CELERY_BROKER_URL: str = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
-    CELERY_RESULT_BACKEND: str = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+    CELERY_BROKER_URL: str = REDIS_URL
+    CELERY_RESULT_BACKEND: str = REDIS_URL
 
     class Config:
         env_file = ".env"
