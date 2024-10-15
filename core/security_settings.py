@@ -1,7 +1,5 @@
 from typing import List
 from pydantic_settings import BaseSettings
-import ipaddress
-import os
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
@@ -11,7 +9,7 @@ class SecuritySettings(BaseSettings):
     ALLOWED_DOMAINS: str = ""
     ALLOWED_IPS: str = ""
     TWILIO_IP_RANGES: str = ""
-
+    
     # Additional fields
     TWILIO_ACCOUNT_SID: str
     TWILIO_AUTH_TOKEN: str
@@ -49,17 +47,6 @@ class SecuritySettings(BaseSettings):
         parsed = [item.strip() for item in value.split(",") if item.strip()]
         logger.debug(f"Parsed value: {parsed}")
         return parsed
-
-    def is_ip_allowed(self, ip: str) -> bool:
-        if ip in self.ALLOWED_IPS:
-            return True
-        for ip_range in self.TWILIO_IP_RANGES:
-            try:
-                if ipaddress.ip_address(ip) in ipaddress.ip_network(ip_range, strict=False):
-                    return True
-            except ValueError:
-                logger.error(f"Invalid IP range: {ip_range}")
-        return False
 
 try:
     security_settings = SecuritySettings()
