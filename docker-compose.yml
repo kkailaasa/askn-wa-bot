@@ -4,7 +4,7 @@ services:
   web:
     build: .
     ports:
-      - "${DOCKER_PORT:-7262}:8000"
+      - "7262:8000"
     depends_on:
       - redis
     env_file:
