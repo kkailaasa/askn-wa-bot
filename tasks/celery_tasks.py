@@ -9,16 +9,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 app = Celery('tasks', broker=settings.REDIS_URL, backend=settings.REDIS_URL)
+
 app.conf.update(
+    broker_connection_retry_on_startup=True,
     task_serializer='json',
     accept_content=['json'],
     result_serializer='json',
     timezone='UTC',
     enable_utc=True,
 )
-
-chat_service = ChatService()
-messaging_service = MessagingService()
 
 @app.task
 def process_question(Body: str, From: str):
