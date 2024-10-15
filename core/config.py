@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_URL: str = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 
+    # setting for cache expiration time (in seconds)
+    KEYCLOAK_CACHE_EXPIRATION: int = 3600
+
     # Authorization
     API_KEY: str
 

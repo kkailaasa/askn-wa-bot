@@ -31,41 +31,67 @@ def create_keycloak_admin() -> KeycloakAdmin:
 #         return False
 #     return True
 
+def get_cache_key(identifier: str, identifier_type: str) -> str:
+    return f"keycloak_user:{identifier_type}:{identifier}"
+
+def get_from_cache(key: str) -> dict:
+    cached_data = redis_client.get(key)
+    if cached_data:
+        return json.loads(cached_data)
+    return None
+
+def set_in_cache(key: str, data: dict):
+    redis_client.setex(key, settings.KEYCLOAK_CACHE_EXPIRATION, json.dumps(data))
+
+def get_user_info(user: dict) -> dict:
+    attributes = user.get('attributes', {})
+    return {
+        "email": user.get('email', ''),
+        "enabled": user.get('enabled', False),
+        "phoneType": attributes.get('phoneType', [None])[0],
+        "phoneNumber": attributes.get('phoneNumber', [None])[0],
+        "gender": attributes.get('gender', [None])[0],
+        "phoneNumberVerified": attributes.get('phoneNumberVerified', [None])[0],
+        "firstName": user.get('firstName', ''),
+        "lastName": user.get('lastName', '')
+    }
+
 def get_user_by_email(email: str) -> dict:
+    cache_key = get_cache_key(email, "email")
+    cached_user = get_from_cache(cache_key)
+
+    if cached_user:
+        logger.info(f"User data for email {email} retrieved from cache")
+        return cached_user
+
     keycloak_admin = create_keycloak_admin()
     users = keycloak_admin.get_users({"email": email})
 
     if len(users) == 1:
-        user = users[0]
-        attributes = user.get('attributes', {})
-        return {
-            "email": email,
-            "enabled": user.get('enabled', False),
-            "phoneType": attributes.get('phoneType', [None])[0],
-            "phoneNumber": attributes.get('phoneNumber', [None])[0],
-            "gender": attributes.get('gender', [None])[0],
-            "phoneNumberVerified": attributes.get('phoneNumberVerified', [None])[0],
-            "firstName": user.get('firstName', ''),
-            "lastName": user.get('lastName', '')
-        }
+        user_info = get_user_info(users[0])
+        set_in_cache(cache_key, user_info)
+        logger.info(f"User data for email {email} retrieved from Keycloak and cached")
+        return user_info
+
+    logger.info(f"User with email {email} not found")
     return None
 
-# Function to get user info by phone number
 def get_user_by_phone(phone_number: str) -> dict:
+    cache_key = get_cache_key(phone_number, "phone")
+    cached_user = get_from_cache(cache_key)
+
+    if cached_user:
+        logger.info(f"User data for phone {phone_number} retrieved from cache")
+        return cached_user
+
     keycloak_admin = create_keycloak_admin()
     users = keycloak_admin.get_users({"q": f"phoneNumber:{phone_number}"})
 
     if len(users) == 1:
-        user = users[0]
-        attributes = user.get('attributes', {})
-        return {
-            "email": user.get('email', ''),  # Add email field
-            "enabled": user.get('enabled', False),
-            "phoneType": attributes.get('phoneType', [None])[0],
-            "phoneNumber": attributes.get('phoneNumber', [None])[0],
-            "gender": attributes.get('gender', [None])[0],
-            "phoneNumberVerified": attributes.get('phoneNumberVerified', [None])[0],
-            "firstName": user.get('firstName', ''),
-            "lastName": user.get('lastName', '')
-        }
+        user_info = get_user_info(users[0])
+        set_in_cache(cache_key, user_info)
+        logger.info(f"User data for phone {phone_number} retrieved from Keycloak and cached")
+        return user_info
+
+    logger.info(f"User with phone {phone_number} not found")
     return None
