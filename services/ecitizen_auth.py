@@ -2,9 +2,13 @@ from keycloak import KeycloakAdmin, KeycloakOpenIDConnection
 from core.config import settings
 import redis
 import json
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 redis_client = redis.StrictRedis(host=settings.REDIS_HOST, port=settings.REDIS_PORT)
-AUTH_TIME_WINDOW = 7 * 24 * 60 * 60
 
 def create_keycloak_admin() -> KeycloakAdmin:
     keycloak_connection = KeycloakOpenIDConnection(
@@ -17,20 +21,6 @@ def create_keycloak_admin() -> KeycloakAdmin:
         verify=True
     )
     return KeycloakAdmin(connection=keycloak_connection)
-
-# def is_user_authorized(phone_number: str) -> bool:
-#     phone_number = phone_number.split(':')[1].strip()
-#     key = f"auth_phone:{phone_number}"
-#     auth_user = redis_client.get(key)
-
-#     if auth_user is None:
-#         keycloak_admin = create_keycloak_admin()
-#         users = keycloak_admin.get_users({"q": f"phoneNumber:{phone_number}"})
-#         if len(users) == 1:
-#             redis_client.setex(key, AUTH_TIME_WINDOW, 1)
-#             return True
-#         return False
-#     return True
 
 def get_cache_key(identifier: str, identifier_type: str) -> str:
     return f"keycloak_user:{identifier_type}:{identifier}"
@@ -60,11 +50,11 @@ def get_user_info(user: dict) -> dict:
 def get_user_by_email(email: str) -> dict:
     cache_key = get_cache_key(email, "email")
     cached_user = get_from_cache(cache_key)
-
+    
     if cached_user:
         logger.info(f"User data for email {email} retrieved from cache")
         return cached_user
-
+    
     keycloak_admin = create_keycloak_admin()
     users = keycloak_admin.get_users({"email": email})
 
@@ -73,18 +63,18 @@ def get_user_by_email(email: str) -> dict:
         set_in_cache(cache_key, user_info)
         logger.info(f"User data for email {email} retrieved from Keycloak and cached")
         return user_info
-
+    
     logger.info(f"User with email {email} not found")
     return None
 
 def get_user_by_phone(phone_number: str) -> dict:
     cache_key = get_cache_key(phone_number, "phone")
     cached_user = get_from_cache(cache_key)
-
+    
     if cached_user:
         logger.info(f"User data for phone {phone_number} retrieved from cache")
         return cached_user
-
+    
     keycloak_admin = create_keycloak_admin()
     users = keycloak_admin.get_users({"q": f"phoneNumber:{phone_number}"})
 
@@ -93,6 +83,6 @@ def get_user_by_phone(phone_number: str) -> dict:
         set_in_cache(cache_key, user_info)
         logger.info(f"User data for phone {phone_number} retrieved from Keycloak and cached")
         return user_info
-
+    
     logger.info(f"User with phone {phone_number} not found")
     return None
