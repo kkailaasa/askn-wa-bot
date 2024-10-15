@@ -62,13 +62,6 @@ class Settings(BaseSettings):
             # If not JSON, split by comma and strip whitespace
             return [item.strip() for item in value.split(",") if item.strip()]
 
-    def __getattribute__(self, item):
-        value = super().__getattribute__(item)
-        if isinstance(value, str):
-            # Remove quotes from string values
-            return value.strip("\"'")
-        return value
-
 settings = Settings()
 
 # Print for debugging (remove in production)
