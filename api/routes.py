@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Form, HTTPException, Depends
+from fastapi import APIRouter, Form, HTTPException, Depends, Request
 from tasks.celery_tasks import process_question
 from services.ecitizen_auth import get_user_by_email, get_user_by_phone
 from services.auth import get_api_key
+from utils.twilio_validator import validate_twilio_request
 from typing import Optional
 from pydantic import BaseModel, EmailStr
 
@@ -24,7 +25,8 @@ class UserResponse(BaseModel):
     lastName: str
 
 @router.post("/message")
-def reply(Body: str = Form(), From: str = Form()):
+async def reply(request: Request, Body: str = Form(), From: str = Form()):
+    await validate_twilio_request(request)
     process_question.delay(Body, From)
     return {"status": "Task added"}
 
