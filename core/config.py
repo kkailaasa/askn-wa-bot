@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     API_KEY: str
 
     # FastAPI Configuration
-    PORT: int = 8000
+    PORT: int = 8000  # This is the internal FastAPI port
 
     # Celery Configuration
     CELERY_BROKER_URL: str = REDIS_URL
@@ -46,7 +46,6 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Parse the string values into lists after initialization
         self.CORS_ALLOWED_ORIGINS = self._parse_list_from_env(self.CORS_ALLOWED_ORIGINS)
 
     @staticmethod
@@ -55,16 +54,15 @@ class Settings(BaseSettings):
         if not value:
             logger.warning("Value is not set or is empty")
             return []
-        # Always treat the value as a comma-separated list
         parsed = [item.strip() for item in value.split(",") if item.strip()]
         logger.debug(f"Parsed value: {parsed}")
         return parsed
 
-# Initialize settings outside of the class definition
+# Initialize settings
 try:
     settings = Settings()
     logger.debug(f"CORS Allowed Origins: {settings.CORS_ALLOWED_ORIGINS}")
-    logger.debug(f"Port: {settings.PORT}")
+    logger.debug(f"FastAPI Port: {settings.PORT}")
 except Exception as e:
     logger.error(f"Error initializing settings: {str(e)}")
     raise
