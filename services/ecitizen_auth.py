@@ -1,6 +1,7 @@
 from keycloak import KeycloakAdmin, KeycloakOpenIDConnection
 from core.config import settings
 import redis
+import json
 
 redis_client = redis.StrictRedis(host=settings.REDIS_HOST, port=settings.REDIS_PORT)
 AUTH_TIME_WINDOW = 7 * 24 * 60 * 60
