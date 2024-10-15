@@ -9,6 +9,10 @@ services:
       - redis
     env_file:
       - .env
+    environment:
+      - ALLOWED_DOMAINS=${ALLOWED_DOMAINS}
+      - ALLOWED_IPS=${ALLOWED_IPS}
+      - TWILIO_IP_RANGES=${TWILIO_IP_RANGES}
 
   celery_worker:
     build: .
@@ -17,12 +21,10 @@ services:
       - redis
     env_file:
       - .env
-
-  redis:
-    image: "redis:alpine"
-    volumes:
-      - ./data/redis_data:/data
-    command: redis-server --appendonly yes
+    environment:
+      - ALLOWED_DOMAINS=${ALLOWED_DOMAINS}
+      - ALLOWED_IPS=${ALLOWED_IPS}
+      - TWILIO_IP_RANGES=${TWILIO_IP_RANGES}
 
   celery_beat:
     build: .
@@ -31,6 +33,16 @@ services:
       - redis
     env_file:
       - .env
+    environment:
+      - ALLOWED_DOMAINS=${ALLOWED_DOMAINS}
+      - ALLOWED_IPS=${ALLOWED_IPS}
+      - TWILIO_IP_RANGES=${TWILIO_IP_RANGES}
+
+  redis:
+    image: "redis:alpine"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
 
 volumes:
   redis_data:

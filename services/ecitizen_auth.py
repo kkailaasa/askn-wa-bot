@@ -1,5 +1,5 @@
 from keycloak import KeycloakAdmin, KeycloakOpenIDConnection
-from config import settings
+from core.config import settings
 import redis
 
 redis_client = redis.StrictRedis(host=settings.REDIS_HOST, port=settings.REDIS_PORT)
@@ -59,6 +59,7 @@ def get_user_by_phone(phone_number: str) -> dict:
         user = users[0]
         attributes = user.get('attributes', {})
         return {
+            "email": user.get('email', ''),  # Add email field
             "enabled": user.get('enabled', False),
             "phoneType": attributes.get('phoneType', [None])[0],
             "phoneNumber": attributes.get('phoneNumber', [None])[0],

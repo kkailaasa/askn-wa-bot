@@ -1,5 +1,5 @@
 from dify_client import ChatClient
-from config import settings
+from core.config import settings
 
 class ChatService:
     def __init__(self):

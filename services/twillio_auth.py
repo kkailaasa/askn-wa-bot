@@ -1,5 +1,5 @@
 from twilio.rest import Client
-from config import settings
+from core.config import settings
 import logging
 
 logger = logging.getLogger(__name__)

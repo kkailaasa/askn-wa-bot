@@ -3,7 +3,7 @@ from celery import Celery
 from services.dify_chat import ChatService
 from services.twillio_auth import MessagingService
 from utils.redis_helpers import is_rate_limited
-from config import settings
+from core.config import settings
 import logging
 import traceback
 
