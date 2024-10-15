@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     API_KEY: str
 
     # FastAPI Configuration
-    PORT: int = 8000
+    PORT: int
 
     # Celery Configuration
     CELERY_BROKER_URL: str = REDIS_URL
@@ -64,6 +64,7 @@ class Settings(BaseSettings):
 try:
     settings = Settings()
     logger.debug(f"CORS Allowed Origins: {settings.CORS_ALLOWED_ORIGINS}")
+    logger.debug(f"Port: {settings.PORT}")
 except Exception as e:
     logger.error(f"Error initializing settings: {str(e)}")
     raise
