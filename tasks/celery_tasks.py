@@ -1,6 +1,31 @@
+from celery import Celery
+from services.dify_chat import ChatService
+from services.twillio_auth import MessagingService
+from utils.redis_helpers import is_rate_limited
+from core.config import settings
+import logging
+import traceback
+
+logger = logging.getLogger(__name__)
+
+# Initialize the Celery app
+app = Celery('tasks', broker=settings.REDIS_URL, backend=settings.REDIS_URL)
+
+app.conf.update(
+    broker_connection_retry_on_startup=True,
+    task_serializer='json',
+    accept_content=['json'],
+    result_serializer='json',
+    timezone='UTC',
+    enable_utc=True,
+)
+
+chat_service = ChatService()
+messaging_service = MessagingService()
+
 @app.task
 def process_question(Body: str, From: str):
-    logger.info(f"Processing question for user: {From}")
+    logger.info("Processing question")
     try:
         # Remove 'whatsapp:' prefix from the phone number
         From = From.replace('whatsapp:', '')
@@ -9,17 +34,11 @@ def process_question(Body: str, From: str):
             logger.info(f"Rate limit exceeded for {From}")
             return
 
-        logger.debug(f"Getting conversation ID for user: {From}")
         conversation_id = chat_service.get_conversation_id(From)
-        logger.debug(f"Conversation ID for user {From}: {conversation_id}")
-
-        logger.debug(f"Creating chat message for user {From} with body: {Body}")
         result = chat_service.create_chat_message(From, Body, conversation_id)
-        logger.info(f"Response for user {From}: {result}")
 
-        logger.debug(f"Sending message to user {From}")
+        logger.info(f"The response to be sent was {result}")
         messaging_service.send_message(From, result)
-        logger.info(f"Message sent successfully to user {From}")
 
     except Exception as e:
         logger.error(f"Error processing message for {From}: {str(e)}")
