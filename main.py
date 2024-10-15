@@ -5,8 +5,8 @@ from core.config import Settings
 from core.security_settings import security_settings
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from typing import List
-import ipaddress
 import logging
+import re
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -15,40 +15,34 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 settings = Settings()
 
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["yourdomain.com"])
+# Use TrustedHostMiddleware with your allowed domains
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=security_settings.ALLOWED_DOMAINS + ["localhost", "127.0.0.1"])
 
-def get_client_ip(request: Request) -> str:
-    x_forwarded_for = request.headers.get("X-Forwarded-For")
-    if x_forwarded_for:
-        return x_forwarded_for.split(',')[0].strip()
-    return request.client.host
+def is_valid_domain(host: str) -> bool:
+    # Basic domain validation regex
+    domain_pattern = r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'
+    return re.match(domain_pattern, host) is not None
 
 def is_allowed_domain(host: str, allowed_domains: List[str]) -> bool:
     return any(host.endswith(domain) for domain in allowed_domains)
 
-# Custom middleware for IP whitelisting
+# Custom middleware for domain whitelisting
 @app.middleware("http")
-async def ip_and_domain_whitelist_middleware(request: Request, call_next):
-    client_ip = get_client_ip(request)
+async def domain_whitelist_middleware(request: Request, call_next):
     host = request.headers.get("Host", "").split(':')[0]  # Remove port if present
 
-    logger.debug(f"Client IP: {client_ip}")
     logger.debug(f"Request Host: {host}")
-    logger.debug(f"Allowed IPs: {security_settings.ALLOWED_IPS}")
     logger.debug(f"Allowed Domains: {security_settings.ALLOWED_DOMAINS}")
-    logger.debug(f"Twilio IP Ranges: {security_settings.TWILIO_IP_RANGES}")
 
-    ip_allowed = (
-        client_ip in security_settings.ALLOWED_IPS or
-        any(ipaddress.ip_address(client_ip) in ipaddress.ip_network(twilio_range, strict=False)
-            for twilio_range in security_settings.TWILIO_IP_RANGES)
-    )
+    if not is_valid_domain(host):
+        logger.warning(f"Invalid domain or IP request: {host}")
+        raise HTTPException(status_code=403, detail="Access forbidden: Invalid domain")
 
-    domain_allowed = is_allowed_domain(host, security_settings.ALLOWED_DOMAINS)
-
-    if not (ip_allowed or domain_allowed):
-        raise HTTPException(status_code=403, detail="Access forbidden")
+    if not is_allowed_domain(host, security_settings.ALLOWED_DOMAINS):
+        logger.warning(f"Access forbidden for Host: {host}")
+        raise HTTPException(status_code=403, detail="Access forbidden: Domain not allowed")
     
+    logger.info(f"Access allowed for Host: {host}")
     response = await call_next(request)
     return response
 
