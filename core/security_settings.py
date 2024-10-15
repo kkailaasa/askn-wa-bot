@@ -8,9 +8,9 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class SecuritySettings(BaseSettings):
-    ALLOWED_DOMAINS: List[str] = []
-    ALLOWED_IPS: List[str] = []
-    TWILIO_IP_RANGES: List[str] = []
+    ALLOWED_DOMAINS: str = ""
+    ALLOWED_IPS: str = ""
+    TWILIO_IP_RANGES: str = ""
 
     class Config:
         env_file = ".env"
@@ -21,11 +21,13 @@ class SecuritySettings(BaseSettings):
         self.ALLOWED_IPS = self._parse_list_from_env("ALLOWED_IPS")
         self.TWILIO_IP_RANGES = self._parse_list_from_env("TWILIO_IP_RANGES")
 
-    @staticmethod
-    def _parse_list_from_env(key: str) -> List[str]:
-        value = os.getenv(key, "")
+    def _parse_list_from_env(self, key: str) -> List[str]:
+        value = getattr(self, key)
         logger.debug(f"Raw value for {key}: {value}")
-        parsed = [item.strip() for item in value.split(",")] if value else []
+        if not value:
+            logger.warning(f"{key} is not set or is empty")
+            return []
+        parsed = [item.strip() for item in value.split(",") if item.strip()]
         logger.debug(f"Parsed value for {key}: {parsed}")
         return parsed
 
@@ -40,9 +42,11 @@ class SecuritySettings(BaseSettings):
                 logger.error(f"Invalid IP range: {ip_range}")
         return False
 
-security_settings = SecuritySettings()
-
-# Log for debugging (consider removing or changing to debug level in production)
-logger.info(f"Allowed Domains: {security_settings.ALLOWED_DOMAINS}")
-logger.info(f"Allowed IPs: {security_settings.ALLOWED_IPS}")
-logger.info(f"Twilio IP Ranges: {security_settings.TWILIO_IP_RANGES}")
+try:
+    security_settings = SecuritySettings()
+    logger.debug(f"Allowed Domains: {security_settings.ALLOWED_DOMAINS}")
+    logger.debug(f"Allowed IPs: {security_settings.ALLOWED_IPS}")
+    logger.debug(f"Twilio IP Ranges: {security_settings.TWILIO_IP_RANGES}")
+except Exception as e:
+    logger.error(f"Error initializing security settings: {str(e)}")
+    raise
