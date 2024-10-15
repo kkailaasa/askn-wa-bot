@@ -2,6 +2,10 @@ from typing import List
 from pydantic_settings import BaseSettings
 import ipaddress
 import os
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 class SecuritySettings(BaseSettings):
     ALLOWED_DOMAINS: List[str] = []
@@ -20,7 +24,10 @@ class SecuritySettings(BaseSettings):
     @staticmethod
     def _parse_list_from_env(key: str) -> List[str]:
         value = os.getenv(key, "")
-        return [item.strip() for item in value.split(",")] if value else []
+        logger.debug(f"Raw value for {key}: {value}")
+        parsed = [item.strip() for item in value.split(",")] if value else []
+        logger.debug(f"Parsed value for {key}: {parsed}")
+        return parsed
 
     def is_ip_allowed(self, ip: str) -> bool:
         if ip in self.ALLOWED_IPS:
@@ -30,12 +37,12 @@ class SecuritySettings(BaseSettings):
                 if ipaddress.ip_address(ip) in ipaddress.ip_network(ip_range, strict=False):
                     return True
             except ValueError:
-                print(f"Invalid IP range: {ip_range}")
+                logger.error(f"Invalid IP range: {ip_range}")
         return False
 
 security_settings = SecuritySettings()
 
-# Print for debugging (remove in production)
-print(f"Allowed Domains: {security_settings.ALLOWED_DOMAINS}")
-print(f"Allowed IPs: {security_settings.ALLOWED_IPS}")
-print(f"Twilio IP Ranges: {security_settings.TWILIO_IP_RANGES}")
+# Log for debugging (consider removing or changing to debug level in production)
+logger.info(f"Allowed Domains: {security_settings.ALLOWED_DOMAINS}")
+logger.info(f"Allowed IPs: {security_settings.ALLOWED_IPS}")
+logger.info(f"Twilio IP Ranges: {security_settings.TWILIO_IP_RANGES}")

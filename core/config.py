@@ -52,19 +52,33 @@ class Settings(BaseSettings):
 
     @staticmethod
     def _parse_list_from_env(key: str) -> List[str]:
-        value = os.getenv(key, "")
+        value = os.getenv(key)
+        logger.debug(f"Raw value for {key}: {value}")
+        
         if not value:
+            logger.warning(f"{key} is not set or is empty")
             return []
+        
         try:
             # Try parsing as JSON first
-            return json.loads(value)
+            parsed = json.loads(value)
+            logger.debug(f"Parsed {key} as JSON: {parsed}")
+            return parsed if isinstance(parsed, list) else [parsed]
         except json.JSONDecodeError:
             # If not JSON, split by comma and strip whitespace
-            return [item.strip() for item in value.split(",") if item.strip()]
+            parsed = [item.strip() for item in value.split(",") if item.strip()]
+            logger.debug(f"Parsed {key} as comma-separated list: {parsed}")
+            return parsed
+
+    def __getattribute__(self, item):
+        value = super().__getattribute__(item)
+        if isinstance(value, str):
+            # Remove quotes from string values
+            return value.strip("\"'")
+        return value
 
 settings = Settings()
 
-# Print for debugging (remove in production)
-print(f"Allowed Domains: {settings.ALLOWED_DOMAINS}")
-print(f"Allowed IPs: {settings.ALLOWED_IPS}")
-print(f"Twilio IP Ranges: {settings.TWILIO_IP_RANGES}")
+logger.debug(f"Allowed Domains: {settings.ALLOWED_DOMAINS}")
+logger.debug(f"Allowed IPs: {settings.ALLOWED_IPS}")
+logger.debug(f"Twilio IP Ranges: {settings.TWILIO_IP_RANGES}")
