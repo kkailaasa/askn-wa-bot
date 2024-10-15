@@ -5,6 +5,7 @@ from services.twillio_auth import MessagingService
 from utils.redis_helpers import is_rate_limited
 from config import settings
 import logging
+import traceback
 
 logger = logging.getLogger(__name__)
 
