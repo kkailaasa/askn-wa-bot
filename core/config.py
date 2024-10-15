@@ -39,9 +39,9 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = REDIS_URL
 
     # Security Settings
-    ALLOWED_DOMAINS: List[str] = []
-    ALLOWED_IPS: List[str] = []
-    TWILIO_IP_RANGES: List[str] = []
+    ALLOWED_DOMAINS: str = ""
+    ALLOWED_IPS: str = ""
+    TWILIO_IP_RANGES: str = ""
 
     class Config:
         env_file = ".env"
@@ -49,22 +49,20 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.ALLOWED_DOMAINS = self._parse_list_from_env("ALLOWED_DOMAINS")
-        self.ALLOWED_IPS = self._parse_list_from_env("ALLOWED_IPS")
-        self.TWILIO_IP_RANGES = self._parse_list_from_env("TWILIO_IP_RANGES")
+        # Parse the string values into lists after initialization
+        self.ALLOWED_DOMAINS = self._parse_list_from_env(self.ALLOWED_DOMAINS)
+        self.ALLOWED_IPS = self._parse_list_from_env(self.ALLOWED_IPS)
+        self.TWILIO_IP_RANGES = self._parse_list_from_env(self.TWILIO_IP_RANGES)
 
     @staticmethod
-    def _parse_list_from_env(key: str) -> List[str]:
-        value = os.getenv(key)
-        logger.debug(f"Raw value for {key}: {value}")
-
+    def _parse_list_from_env(value: str) -> List[str]:
+        logger.debug(f"Raw value: {value}")
         if not value:
-            logger.warning(f"{key} is not set or is empty")
+            logger.warning("Value is not set or is empty")
             return []
-
         # Always treat the value as a comma-separated list
         parsed = [item.strip() for item in value.split(",") if item.strip()]
-        logger.debug(f"Parsed value for {key}: {parsed}")
+        logger.debug(f"Parsed value: {parsed}")
         return parsed
 
 # Initialize settings outside of the class definition
