@@ -5,6 +5,12 @@ from core.config import Settings
 from core.security_settings import security_settings
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from typing import List
+import ipaddress
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 settings = Settings()
@@ -19,15 +25,6 @@ def get_client_ip(request: Request) -> str:
 
 def is_allowed_domain(host: str, allowed_domains: List[str]) -> bool:
     return any(host.endswith(domain) for domain in allowed_domains)
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=security_settings.ALLOWED_DOMAINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Custom middleware for IP whitelisting
 @app.middleware("http")
@@ -54,6 +51,17 @@ async def ip_and_domain_whitelist_middleware(request: Request, call_next):
     
     response = await call_next(request)
     return response
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=security_settings.ALLOWED_DOMAINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(router)
 
 if __name__ == "__main__":
     import uvicorn
