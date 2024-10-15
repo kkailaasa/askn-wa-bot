@@ -26,7 +26,9 @@ class UserResponse(BaseModel):
 
 @router.post("/message")
 async def reply(request: Request, Body: str = Form(), From: str = Form()):
-    await validate_twilio_request(request)
+    # WARNING: Twilio request validation is currently disabled. 
+    # await validate_twilio_request(request)
+    
     process_question.delay(Body, From)
     return {"status": "Task added"}
 
