@@ -1,6 +1,11 @@
+import logging
 from twilio.request_validator import RequestValidator
 from fastapi import Request, HTTPException
 from core.config import settings
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 async def validate_twilio_request(request: Request):
     validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
