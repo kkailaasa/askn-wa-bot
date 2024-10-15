@@ -19,6 +19,9 @@ app.conf.update(
     enable_utc=True,
 )
 
+chat_service = ChatService()
+messaging_service = MessagingService()
+
 @app.task
 def process_question(Body: str, From: str):
     logger.info("Processing question")
