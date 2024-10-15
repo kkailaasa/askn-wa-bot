@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import List
 
 class Settings(BaseSettings):
     # Twilio Configuration
@@ -32,8 +33,29 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = REDIS_URL
     CELERY_RESULT_BACKEND: str = REDIS_URL
 
+    # Security Settings
+    ALLOWED_DOMAINS: List[str] = []
+    ALLOWED_IPS: List[str] = []
+    TWILIO_IP_RANGES: List[str] = []
+
     class Config:
         env_file = ".env"
         case_sensitive = False
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.ALLOWED_DOMAINS = self._parse_list_from_env("ALLOWED_DOMAINS")
+        self.ALLOWED_IPS = self._parse_list_from_env("ALLOWED_IPS")
+        self.TWILIO_IP_RANGES = self._parse_list_from_env("TWILIO_IP_RANGES")
+
+    @staticmethod
+    def _parse_list_from_env(key: str) -> List[str]:
+        value = Settings.Config.env_file.get(key, "")
+        return [item.strip() for item in value.split(",")] if value else []
+
 settings = Settings()
+
+# Print for debugging (remove in production)
+print(f"Allowed Domains: {settings.ALLOWED_DOMAINS}")
+print(f"Allowed IPs: {settings.ALLOWED_IPS}")
+print(f"Twilio IP Ranges: {settings.TWILIO_IP_RANGES}")
