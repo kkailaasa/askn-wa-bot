@@ -1,7 +1,6 @@
 fastapi
 uvicorn
 twilio
-openai
 python-decouple
 python-multipart
 pyngrok
