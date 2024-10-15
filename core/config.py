@@ -1,7 +1,10 @@
 from pydantic_settings import BaseSettings
 from typing import List
 import os
-import json
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     # Twilio Configuration
@@ -64,8 +67,12 @@ class Settings(BaseSettings):
         logger.debug(f"Parsed value for {key}: {parsed}")
         return parsed
 
-settings = Settings()
-
-logger.debug(f"Allowed Domains: {settings.ALLOWED_DOMAINS}")
-logger.debug(f"Allowed IPs: {settings.ALLOWED_IPS}")
-logger.debug(f"Twilio IP Ranges: {settings.TWILIO_IP_RANGES}")
+# Initialize settings outside of the class definition
+try:
+    settings = Settings()
+    logger.debug(f"Allowed Domains: {settings.ALLOWED_DOMAINS}")
+    logger.debug(f"Allowed IPs: {settings.ALLOWED_IPS}")
+    logger.debug(f"Twilio IP Ranges: {settings.TWILIO_IP_RANGES}")
+except Exception as e:
+    logger.error(f"Error initializing settings: {str(e)}")
+    raise
