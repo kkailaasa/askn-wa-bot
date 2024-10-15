@@ -4,15 +4,11 @@ services:
   web:
     build: .
     ports:
-      - "7262:8000"
+      - "${PORT}:${PORT}"
     depends_on:
       - redis
     env_file:
       - .env
-    environment:
-      - ALLOWED_DOMAINS=${ALLOWED_DOMAINS}
-      - ALLOWED_IPS=${ALLOWED_IPS}
-      - TWILIO_IP_RANGES=${TWILIO_IP_RANGES}
 
   celery_worker:
     build: .
@@ -21,10 +17,6 @@ services:
       - redis
     env_file:
       - .env
-    environment:
-      - ALLOWED_DOMAINS=${ALLOWED_DOMAINS}
-      - ALLOWED_IPS=${ALLOWED_IPS}
-      - TWILIO_IP_RANGES=${TWILIO_IP_RANGES}
 
   celery_beat:
     build: .
@@ -33,10 +25,6 @@ services:
       - redis
     env_file:
       - .env
-    environment:
-      - ALLOWED_DOMAINS=${ALLOWED_DOMAINS}
-      - ALLOWED_IPS=${ALLOWED_IPS}
-      - TWILIO_IP_RANGES=${TWILIO_IP_RANGES}
 
   redis:
     image: "redis:alpine"
