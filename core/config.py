@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     API_KEY: str
 
     # FastAPI Configuration
-    PORT: int
+    PORT: int = 8000
 
     # Celery Configuration
     CELERY_BROKER_URL: str = REDIS_URL
