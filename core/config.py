@@ -54,28 +54,15 @@ class Settings(BaseSettings):
     def _parse_list_from_env(key: str) -> List[str]:
         value = os.getenv(key)
         logger.debug(f"Raw value for {key}: {value}")
-        
+
         if not value:
             logger.warning(f"{key} is not set or is empty")
             return []
-        
-        try:
-            # Try parsing as JSON first
-            parsed = json.loads(value)
-            logger.debug(f"Parsed {key} as JSON: {parsed}")
-            return parsed if isinstance(parsed, list) else [parsed]
-        except json.JSONDecodeError:
-            # If not JSON, split by comma and strip whitespace
-            parsed = [item.strip() for item in value.split(",") if item.strip()]
-            logger.debug(f"Parsed {key} as comma-separated list: {parsed}")
-            return parsed
 
-    def __getattribute__(self, item):
-        value = super().__getattribute__(item)
-        if isinstance(value, str):
-            # Remove quotes from string values
-            return value.strip("\"'")
-        return value
+        # Always treat the value as a comma-separated list
+        parsed = [item.strip() for item in value.split(",") if item.strip()]
+        logger.debug(f"Parsed value for {key}: {parsed}")
+        return parsed
 
 settings = Settings()
 
