@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import List
 import os
+import json
 
 class Settings(BaseSettings):
     # Twilio Configuration
@@ -52,7 +53,14 @@ class Settings(BaseSettings):
     @staticmethod
     def _parse_list_from_env(key: str) -> List[str]:
         value = os.getenv(key, "")
-        return [item.strip() for item in value.split(",")] if value else []
+        if not value:
+            return []
+        try:
+            # Try parsing as JSON first
+            return json.loads(value)
+        except json.JSONDecodeError:
+            # If not JSON, split by comma
+            return [item.strip() for item in value.split(",") if item.strip()]
 
 settings = Settings()
 
