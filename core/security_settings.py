@@ -28,15 +28,14 @@ class SecuritySettings(BaseSettings):
     PORT: int
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
+    CORS_ALLOWED_ORIGINS: str = ""
 
     class Config:
         env_file = ".env"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.ALLOWED_DOMAINS = self._parse_list_from_env(self.ALLOWED_DOMAINS)
-        self.ALLOWED_IPS = self._parse_list_from_env(self.ALLOWED_IPS)
-        self.TWILIO_IP_RANGES = self._parse_list_from_env(self.TWILIO_IP_RANGES)
+        self.CORS_ALLOWED_ORIGINS = self._parse_list_from_env(self.CORS_ALLOWED_ORIGINS)
 
     @staticmethod
     def _parse_list_from_env(value: str) -> List[str]:
@@ -50,9 +49,7 @@ class SecuritySettings(BaseSettings):
 
 try:
     security_settings = SecuritySettings()
-    logger.debug(f"Allowed Domains: {security_settings.ALLOWED_DOMAINS}")
-    logger.debug(f"Allowed IPs: {security_settings.ALLOWED_IPS}")
-    logger.debug(f"Twilio IP Ranges: {security_settings.TWILIO_IP_RANGES}")
+    logger.debug(f"CORS Allowed Origins: {security_settings.CORS_ALLOWED_ORIGINS}")
 except Exception as e:
-    logger.error(f"Error initializing security settings: {str(e)}")
+    logger.error(f"Error initializing settings: {str(e)}")
     raise

@@ -1,6 +1,5 @@
 from pydantic_settings import BaseSettings
 from typing import List
-import os
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
@@ -32,16 +31,14 @@ class Settings(BaseSettings):
     API_KEY: str
 
     # FastAPI Configuration
-    PORT: str = "8000"
+    PORT: int = 8000
 
     # Celery Configuration
     CELERY_BROKER_URL: str = REDIS_URL
     CELERY_RESULT_BACKEND: str = REDIS_URL
 
     # Security Settings
-    ALLOWED_DOMAINS: str = ""
-    ALLOWED_IPS: str = ""
-    TWILIO_IP_RANGES: str = ""
+    CORS_ALLOWED_ORIGINS: str = ""
 
     class Config:
         env_file = ".env"
@@ -50,9 +47,7 @@ class Settings(BaseSettings):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Parse the string values into lists after initialization
-        self.ALLOWED_DOMAINS = self._parse_list_from_env(self.ALLOWED_DOMAINS)
-        self.ALLOWED_IPS = self._parse_list_from_env(self.ALLOWED_IPS)
-        self.TWILIO_IP_RANGES = self._parse_list_from_env(self.TWILIO_IP_RANGES)
+        self.CORS_ALLOWED_ORIGINS = self._parse_list_from_env(self.CORS_ALLOWED_ORIGINS)
 
     @staticmethod
     def _parse_list_from_env(value: str) -> List[str]:
@@ -68,9 +63,7 @@ class Settings(BaseSettings):
 # Initialize settings outside of the class definition
 try:
     settings = Settings()
-    logger.debug(f"Allowed Domains: {settings.ALLOWED_DOMAINS}")
-    logger.debug(f"Allowed IPs: {settings.ALLOWED_IPS}")
-    logger.debug(f"Twilio IP Ranges: {settings.TWILIO_IP_RANGES}")
+    logger.debug(f"CORS Allowed Origins: {settings.CORS_ALLOWED_ORIGINS}")
 except Exception as e:
     logger.error(f"Error initializing settings: {str(e)}")
     raise
