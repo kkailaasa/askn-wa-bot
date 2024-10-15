@@ -4,6 +4,7 @@ from api.routes import router
 from core.config import Settings
 from core.security_settings import security_settings
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from typing import List
 
 app = FastAPI()
 settings = Settings()
