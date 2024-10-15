@@ -33,4 +33,4 @@ services:
     command: redis-server --appendonly yes
 
 volumes:
-  redis_data:s
+  redis_data:
