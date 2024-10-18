@@ -102,7 +102,7 @@ async def authenticate(auth_request: PhoneAuthRequest, api_key: str = Depends(ge
 
 @router.post("/check_email", response_model=dict)
 async def check_email(email_request: EmailAuthRequest, api_key: str = Depends(get_api_key)):
-    if rate_limiter(f"check_email:{email_request.email}", limit=3, period=300):  # 3 attempts per 5 minutes
+    if rate_limiter.is_rate_limited(f"check_email:{email_request.email}", limit=3, period=300):  # 3 attempts per 5 minutes
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
@@ -124,7 +124,7 @@ async def check_email(email_request: EmailAuthRequest, api_key: str = Depends(ge
 
 @router.post("/create_account", response_model=dict)
 async def create_account(user_data: CreateUserRequest, api_key: str = Depends(get_api_key)):
-    if rate_limit(f"create_account:{user_data.phone_number}", limit=2, period=3600):  # 2 attempts per hour
+    if rate_limiter.is_rate_limited(f"create_account:{user_data.phone_number}", limit=2, period=3600):  # 2 attempts per hour
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
@@ -150,7 +150,7 @@ async def create_account(user_data: CreateUserRequest, api_key: str = Depends(ge
 
 @router.post("/send_email_otp", response_model=dict)
 async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
-    if rate_limiter.rate_limit(f"send_email_otp:{email_request.email}", limit=3, period=900):  # 3 attempts per 15 minutes
+    if rate_limiter.is_rate_limited(f"send_email_otp:{email_request.email}", limit=3, period=900):  # 3 attempts per 15 minutes
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
@@ -166,7 +166,7 @@ async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get
 
 @router.post("/verify_email", response_model=dict)
 async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Depends(get_api_key)):
-    if rate_limit(f"verify_email:{verify_data.email}", limit=5, period=300):  # 5 attempts per 5 minutes
+    if rate_limiter.is_rate_limited(f"verify_email:{verify_data.email}", limit=5, period=300):  # 5 attempts per 5 minutes
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
