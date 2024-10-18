@@ -1,6 +1,6 @@
 from .ecitizen_auth import (
-    create_keycloak_admin, 
-    get_user_by_email, 
+    create_keycloak_admin,  # Add this line
+    get_user_by_email,
     get_user_by_phone,
     get_user_by_phone_or_username,
     create_user_with_phone,
@@ -22,7 +22,7 @@ from .dify_chat import ChatService
 from .twilio_auth import MessagingService
 
 __all__ = [
-    'create_keycloak_admin',
+    'create_keycloak_admin',  # Add this line
     'get_user_by_email',
     'get_user_by_phone',
     'get_user_by_phone_or_username',
