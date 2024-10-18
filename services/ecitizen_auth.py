@@ -2,6 +2,7 @@ from keycloak import KeycloakAdmin, KeycloakOpenIDConnection
 from keycloak.exceptions import KeycloakError
 from core.config import settings
 from utils.redis_pool import get_redis_client
+from functools import lru_cache
 import json
 import logging
 import secrets
@@ -19,18 +20,22 @@ class KeycloakOperationError(Exception):
     """Custom exception for Keycloak operations."""
     pass
 
-def create_keycloak_admin() -> KeycloakAdmin:
-    try:
-        keycloak_connection = KeycloakOpenIDConnection(
-            server_url=settings.KEYCLOAK_SERVER_URL,
-            user_realm_name="master",
-            client_id=settings.KEYCLOAK_API_CLIENT_ID,
-            realm_name=settings.KEYCLOAK_REALM,
-            username=settings.KEYCLOAK_USER_NAME,
-            password=settings.KEYCLOAK_PASSWORD,
-            verify=True
-        )
-        return KeycloakAdmin(connection=keycloak_connection)
+@lru_cache(maxsize=1)
+def get_keycloak_admin():
+    keycloak_connection = KeycloakOpenIDConnection(
+        server_url=settings.KEYCLOAK_SERVER_URL,
+        user_realm_name="master",
+        client_id=settings.KEYCLOAK_API_CLIENT_ID,
+        realm_name=settings.KEYCLOAK_REALM,
+        username=settings.KEYCLOAK_USER_NAME,
+        password=settings.KEYCLOAK_PASSWORD,
+        verify=True
+    )
+    return KeycloakAdmin(connection=keycloak_connection)
+
+def create_keycloak_admin():
+    return get_keycloak_admin()
+    
     except KeycloakError as e:
         logger.error(f"Failed to create Keycloak admin: {str(e)}")
         raise KeycloakOperationError("Failed to initialize Keycloak admin")
@@ -97,8 +102,14 @@ def get_user_by_identifier(identifier: str, identifier_type: str) -> Optional[Di
         logger.error(f"Keycloak error while getting user by {identifier_type}: {str(e)}")
         raise KeycloakOperationError(f"Failed to get user by {identifier_type}")
 
-def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
-    return get_user_by_identifier(email, "email")
+def get_users_by_email(email: str) -> List[Dict[str, Any]]:
+    try:
+        keycloak_admin = create_keycloak_admin()
+        users = keycloak_admin.get_users({"email": email})
+        return [get_user_info(user) for user in users]
+    except KeycloakError as e:
+        logger.error(f"Keycloak error while getting users by email: {str(e)}")
+        raise KeycloakOperationError("Failed to get users by email")
 
 def get_user_by_phone(phone_number: str) -> Optional[Dict[str, Any]]:
     return get_user_by_identifier(phone_number, "phone")
@@ -176,11 +187,15 @@ def add_email_to_user(user_id: str, email: str) -> Dict[str, Any]:
         logger.error(f"Keycloak error while adding email to user: {str(e)}")
         raise KeycloakOperationError("Failed to add email to user")
 
-def verify_email(user_id: str) -> Dict[str, Any]:
+def verify_email(email: str) -> Dict[str, Any]:
     try:
         keycloak_admin = create_keycloak_admin()
+        users = keycloak_admin.get_users({"email": email})
+        if not users:
+            raise KeycloakOperationError("User not found")
+        user_id = users[0]['id']
         keycloak_admin.update_user(user_id=user_id, payload={"emailVerified": True})
-        logger.info(f"Email verified for user ID: {user_id}")
+        logger.info(f"Email verified for user with email: {email}")
         return {"message": "Email verified successfully."}
     except KeycloakError as e:
         logger.error(f"Keycloak error while verifying email: {str(e)}")
