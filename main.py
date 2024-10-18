@@ -1,7 +1,10 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+# main.py
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from api.routes import router
 from core.config import Settings
+from services.ecitizen_auth import KeycloakOperationError
 import logging
 
 # Set up logging
@@ -21,6 +24,22 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+@app.exception_handler(KeycloakOperationError)
+async def keycloak_exception_handler(request: Request, exc: KeycloakOperationError):
+    logger.error(f"Keycloak operation failed: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"message": "An error occurred while processing your request."},
+    )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"message": "An unexpected error occurred."},
+    )
 
 if __name__ == "__main__":
     import uvicorn
