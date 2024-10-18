@@ -99,7 +99,7 @@ def get_user_by_identifier(identifier: str, identifier_type: str) -> Optional[Di
         logger.error(f"Keycloak error while getting user by {identifier_type}: {str(e)}")
         raise KeycloakOperationError(f"Failed to get user by {identifier_type}")
 
-def get_users_by_email(email: str) -> List[Dict[str, Any]]:
+def get_user_by_email(email: str) -> List[Dict[str, Any]]:
     try:
         keycloak_admin = create_keycloak_admin()
         users = keycloak_admin.get_users({"email": email})
