@@ -6,14 +6,17 @@ from services.ecitizen_auth import (
     get_user_by_phone_or_username, add_phone_to_user, create_user_with_phone,
     verify_email, generate_otp, store_otp, verify_otp,
     KeycloakOperationError, get_user_by_email, get_user_by_phone,
-    check_email_exists, rate_limit, store_temp_data, get_temp_data, delete_temp_data
+    check_email_exists, store_temp_data, get_temp_data, delete_temp_data
 )
+from services.ecitizen_auth import RateLimiter
 from services.email_service import send_otp_email
 from services.auth import get_api_key
 from utils.twilio_validator import validate_twilio_request
 from pydantic import BaseModel, EmailStr, Field
 
 logger = logging.getLogger(__name__)
+
+rate_limiter = RateLimiter()
 
 router = APIRouter()
 

@@ -1,4 +1,5 @@
 from celery import Celery
+from services.ecitizen_auth import RateLimiter
 from services.dify_chat import ChatService
 from services.twilio_auth import MessagingService
 from utils.redis_helpers import is_rate_limited
@@ -9,6 +10,8 @@ import traceback
 import time
 
 logger = logging.getLogger(__name__)
+
+rate_limiter = RateLimiter()
 
 # Initialize the Celery app
 app = Celery('tasks', broker=settings.REDIS_URL, backend=settings.REDIS_URL)

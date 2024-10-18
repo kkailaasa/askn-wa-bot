@@ -6,6 +6,7 @@ import json
 import logging
 import secrets
 import time
+import redis
 from typing import Dict, Any, Optional
 
 # Set up logging
@@ -51,7 +52,7 @@ def get_from_cache(key: str) -> Optional[Dict[str, Any]]:
 def set_in_cache(key: str, data: Dict[str, Any]):
     try:
         redis_client.setex(key, settings.KEYCLOAK_CACHE_EXPIRATION, json.dumps(data))
-    except (redis.RedisError, json.JSONEncodeError) as e:
+    except (redis.RedisError, json.JSONDecodeError) as e:
         logger.error(f"Error setting data in cache: {str(e)}")
 
 def get_user_info(user: Dict[str, Any]) -> Dict[str, Any]:
@@ -214,7 +215,7 @@ class RateLimiter:
     def __init__(self):
         self.redis_client = get_redis_client()
 
-    def rate_limit(self, key: str, limit: int, period: int) -> bool:
+    def is_rate_limited(self, key: str, limit: int, period: int) -> bool:
         current = int(time.time())
         key = f"rate_limit:{key}"
         
@@ -242,5 +243,25 @@ def delete_temp_data(key: str):
     redis_key = f"temp_data:{key}"
     redis_client.delete(redis_key)
 
-# Create an instance of RateLimiter
 rate_limiter = RateLimiter()
+
+__all__ = [
+    'KeycloakOperationError',
+    'create_keycloak_admin',
+    'get_user_by_email',
+    'get_user_by_phone',
+    'get_user_by_phone_or_username',
+    'create_user_with_phone',
+    'add_phone_to_user',
+    'check_email_exists',
+    'add_email_to_user',
+    'verify_email',
+    'generate_otp',
+    'store_otp',
+    'verify_otp',
+    'RateLimiter',
+    'store_temp_data',
+    'get_temp_data',
+    'delete_temp_data',
+    'rate_limiter',
+]
