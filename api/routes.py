@@ -87,14 +87,18 @@ async def get_user_phone(phone_request: PhoneRequest, api_key: str = Depends(get
 
 @router.post("/authenticate", response_model=dict)
 async def authenticate(auth_request: PhoneAuthRequest, api_key: str = Depends(get_api_key)):
-    # ... (existing code)
-    if user:
-        # Store user data in temporary storage
-        store_temp_data(auth_request.phone_number, {"user": user})
-        return {"message": "User authenticated", "user": user}
-    else:
-        store_temp_data(auth_request.phone_number, {"phone_number": auth_request.phone_number})
-        return {"message": "User not found", "next_step": "check_email"}
+    try:
+        user = get_user_by_phone_or_username(auth_request.phone_number)
+        if user:
+            # Store user data in temporary storage
+            store_temp_data(auth_request.phone_number, {"user": user})
+            return {"message": "User authenticated", "user": user}
+        else:
+            store_temp_data(auth_request.phone_number, {"phone_number": auth_request.phone_number})
+            return {"message": "User not found", "next_step": "check_email"}
+    except KeycloakOperationError as e:
+        logger.error(f"Keycloak operation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/check_email", response_model=dict)
 async def check_email(email_request: EmailAuthRequest, api_key: str = Depends(get_api_key)):
