@@ -194,21 +194,3 @@ async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Dep
     except Exception as e:
         logger.error(f"Error in verify_email_route: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
-# Error handler for KeycloakOperationError
-@router.exception_handler(KeycloakOperationError)
-async def keycloak_exception_handler(request: Request, exc: KeycloakOperationError):
-    logger.error(f"Keycloak operation failed: {str(exc)}")
-    return JSONResponse(
-        status_code=500,
-        content={"message": "An error occurred while processing your request."},
-    )
-
-# Global exception handler
-@router.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception: {str(exc)}")
-    return JSONResponse(
-        status_code=500,
-        content={"message": "An unexpected error occurred."},
-    )
