@@ -21,7 +21,7 @@ class KeycloakOperationError(Exception):
     pass
 
 @lru_cache(maxsize=1)
-def get_keycloak_admin():
+def create_keycloak_admin():
     try:
         keycloak_connection = KeycloakOpenIDConnection(
             server_url=settings.KEYCLOAK_SERVER_URL,

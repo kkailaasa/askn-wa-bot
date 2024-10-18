@@ -13,6 +13,7 @@ from services.email_service import send_otp_email
 from services.auth import get_api_key
 from utils.twilio_validator import validate_twilio_request
 from pydantic import BaseModel, EmailStr, Field
+from tasks.celery_tasks import process_question
 
 logger = logging.getLogger(__name__)
 
