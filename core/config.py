@@ -1,9 +1,14 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Dict
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+class RateLimitConfig(BaseSettings):
+    create_user: Dict[str, int] = {"limit": 5, "period": 3600}
+    add_email: Dict[str, int] = {"limit": 3, "period": 3600}
+    verify_email: Dict[str, int] = {"limit": 5, "period": 300}
 
 class Settings(BaseSettings):
     # Twilio Configuration
@@ -26,12 +31,16 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "redis"
     REDIS_PORT: int = 6379
     REDIS_URL: str = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+    REDIS_MAX_CONNECTIONS: int = 10
 
     # setting for cache expiration time (in seconds)
-    KEYCLOAK_CACHE_EXPIRATION: int = 3600
+    KEYCLOAK_CACHE_EXPIRATION: str
 
     # Authorization
     API_KEY: str
+
+    # Rate Limiting Configuration
+    RATE_LIMIT: RateLimitConfig = RateLimitConfig()
 
     # FastAPI Configuration
     PORT: int = 8000  # This is the internal FastAPI port
@@ -42,6 +51,14 @@ class Settings(BaseSettings):
 
     # Security Settings
     CORS_ALLOWED_ORIGINS: str = ""
+
+    # Email Configuration
+    EMAIL_FROM: str
+    SMTP_HOST: str
+    SMTP_PORT: int
+    SMTP_USERNAME: str
+    SMTP_PASSWORD: str
+    SMTP_USE_TLS: bool = True
 
     class Config:
         env_file = ".env"
@@ -66,6 +83,7 @@ try:
     settings = Settings()
     logger.debug(f"CORS Allowed Origins: {settings.CORS_ALLOWED_ORIGINS}")
     logger.debug(f"FastAPI Port: {settings.PORT}")
+    logger.debug(f"Rate Limit Config: {settings.RATE_LIMIT}")
 except Exception as e:
     logger.error(f"Error initializing settings: {str(e)}")
     raise

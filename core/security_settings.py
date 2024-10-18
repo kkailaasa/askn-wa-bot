@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 import logging
 
@@ -6,9 +6,9 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class SecuritySettings(BaseSettings):
-    ALLOWED_DOMAINS: str = ""
-    ALLOWED_IPS: str = ""
-    TWILIO_IP_RANGES: str = ""
+    ALLOWED_DOMAINS: Optional[str] = ""
+    ALLOWED_IPS: Optional[str] = ""
+    TWILIO_IP_RANGES: Optional[str] = ""
     
     # Additional fields
     TWILIO_ACCOUNT_SID: str
@@ -28,7 +28,7 @@ class SecuritySettings(BaseSettings):
     PORT: int
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
-    CORS_ALLOWED_ORIGINS: str = ""
+    CORS_ALLOWED_ORIGINS: Optional[str] = ""
 
     class Config:
         env_file = ".env"

@@ -10,3 +10,4 @@ python-keycloak
 celery
 pydantic-settings
 pydantic[email]
+envelope

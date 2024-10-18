@@ -2,9 +2,11 @@ from celery import Celery
 from services.dify_chat import ChatService
 from services.twillio_auth import MessagingService
 from utils.redis_helpers import is_rate_limited
+from utils.redis_pool import get_redis_client
 from core.config import settings
 import logging
 import traceback
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -23,25 +25,45 @@ app.conf.update(
 chat_service = ChatService()
 messaging_service = MessagingService()
 
+# Use the connection pool
+redis_client = get_redis_client()
+
 @app.task
 def process_question(Body: str, From: str):
-    logger.info("Processing question")
+    # ... (existing task code)
+
+@app.task
+def cleanup_redis_data():
+    logger.info("Starting Redis data cleanup task")
+    current_time = int(time.time())
+    
     try:
-        # Remove 'whatsapp:' prefix from the phone number
-        From = From.replace('whatsapp:', '')
-
-        if is_rate_limited(From):
-            logger.info(f"Rate limit exceeded for {From}")
-            return
-
-        conversation_id = chat_service.get_conversation_id(From)
-        result = chat_service.create_chat_message(From, Body, conversation_id)
-
-        logger.info(f"The response to be sent was {result}")
-        messaging_service.send_message(From, result)
-
+        # Cleanup temporary data
+        temp_data_pattern = "temp_data:*"
+        for key in redis_client.scan_iter(temp_data_pattern):
+            if redis_client.ttl(key) < 0:  # If TTL is negative, the key has no expiry set
+                redis_client.delete(key)
+        
+        # Cleanup rate limiting data
+        rate_limit_pattern = "rate_limit:*"
+        for key in redis_client.scan_iter(rate_limit_pattern):
+            redis_client.zremrangebyscore(key, 0, current_time - 86400)  # Remove entries older than 24 hours
+        
+        # Cleanup OTP data
+        otp_pattern = "otp:*"
+        for key in redis_client.scan_iter(otp_pattern):
+            if redis_client.ttl(key) < 0:  # If TTL is negative, the key has no expiry set
+                redis_client.delete(key)
+        
+        logger.info("Redis data cleanup completed successfully")
     except Exception as e:
-        logger.error(f"Error processing message for {From}: {str(e)}")
+        logger.error(f"Error during Redis data cleanup: {str(e)}")
         logger.error(traceback.format_exc())
-        # Optionally, send an error message to the user
-        messaging_service.send_message(From, "Sorry, an error occurred while processing your message. Please try again later.")
+
+# Update Celery beat schedule to include the cleanup task
+app.conf.beat_schedule = {
+    'cleanup-redis-data': {
+        'task': 'tasks.celery_tasks.cleanup_redis_data',
+        'schedule': 3600.0,  # Run every hour
+    },
+}

@@ -1,7 +1,6 @@
-import redis
-from core.config import settings
+from utils.redis_pool import get_redis_client
 
-redis_client = redis.from_url(settings.REDIS_URL)
+redis_client = get_redis_client()
 
 RATE_LIMIT = 2  # Number of messages per number
 TIME_WINDOW = 60  # In seconds
