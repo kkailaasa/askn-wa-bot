@@ -12,7 +12,7 @@ services:
 
   celery_worker:
     build: .
-    command: celery -A tasks.celery_tasks:app worker --loglevel=info
+    command: celery -A tasks.celery_tasks worker --loglevel=info
     depends_on:
       - redis
     env_file:
@@ -20,7 +20,7 @@ services:
 
   celery_beat:
     build: .
-    command: celery -A tasks.celery_tasks:app beat --loglevel=info
+    command: celery -A tasks.celery_tasks beat --loglevel=info
     depends_on:
       - redis
     env_file:

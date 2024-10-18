@@ -1,6 +1,6 @@
 from celery import Celery
 from services.dify_chat import ChatService
-from services.twillio_auth import MessagingService
+from services.twilio_auth import MessagingService
 from utils.redis_helpers import is_rate_limited
 from utils.redis_pool import get_redis_client
 from core.config import settings
@@ -30,7 +30,8 @@ redis_client = get_redis_client()
 
 @app.task
 def process_question(Body: str, From: str):
-    # ... (existing task code)
+    # Your existing task code here
+    pass
 
 @app.task
 def cleanup_redis_data():
