@@ -102,7 +102,7 @@ async def authenticate(auth_request: PhoneAuthRequest, api_key: str = Depends(ge
 
 @router.post("/check_email", response_model=dict)
 async def check_email(email_request: EmailAuthRequest, api_key: str = Depends(get_api_key)):
-    if rate_limit(f"check_email:{email_request.email}", limit=3, period=300):  # 3 attempts per 5 minutes
+    if rate_limiter(f"check_email:{email_request.email}", limit=3, period=300):  # 3 attempts per 5 minutes
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
