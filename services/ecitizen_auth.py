@@ -259,9 +259,9 @@ __all__ = [
     'generate_otp',
     'store_otp',
     'verify_otp',
-    'RateLimiter',
     'store_temp_data',
     'get_temp_data',
     'delete_temp_data',
     'rate_limiter',
+    'RateLimiter',
 ]
