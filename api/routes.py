@@ -1,10 +1,19 @@
 from fastapi import APIRouter, Form, HTTPException, Depends, Request
-from tasks.celery_tasks import process_question
-from services.ecitizen_auth import get_user_by_email, get_user_by_phone
+from fastapi.responses import JSONResponse
+from typing import Optional
+import logging
+from services.ecitizen_auth import (
+    get_user_by_phone_or_username, add_phone_to_user, create_user_with_phone,
+    verify_email, generate_otp, store_otp, verify_otp,
+    KeycloakOperationError, get_user_by_email, get_user_by_phone,
+    check_email_exists, rate_limit, store_temp_data, get_temp_data, delete_temp_data
+)
+from services.email_service import send_otp_email
 from services.auth import get_api_key
 from utils.twilio_validator import validate_twilio_request
-from typing import Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -13,6 +22,20 @@ class EmailRequest(BaseModel):
 
 class PhoneRequest(BaseModel):
     phone_number: str
+
+class PhoneAuthRequest(BaseModel):
+    phone_number: str
+
+class EmailAuthRequest(BaseModel):
+    phone_number: str
+    email: EmailStr
+
+class CreateUserRequest(BaseModel):
+    phone_number: str
+    first_name: str
+    last_name: str
+    gender: str
+    country: str
 
 class UserResponse(BaseModel):
     email: str
@@ -24,26 +47,165 @@ class UserResponse(BaseModel):
     firstName: str
     lastName: str
 
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
 @router.post("/message")
 async def reply(request: Request, Body: str = Form(), From: str = Form()):
-    # WARNING: Twilio request validation is currently disabled. 
+    # WARNING: Twilio request validation is currently disabled.
     # await validate_twilio_request(request)
-    
+
     process_question.delay(Body, From)
     return {"status": "Task added"}
 
 @router.post("/get_user_by_email", response_model=UserResponse)
 async def get_user_email(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
-    user_info = get_user_by_email(email_request.email)
-    if user_info:
-        return UserResponse(**user_info)
-    else:
-        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        user_info = get_user_by_email(email_request.email)
+        if user_info:
+            return UserResponse(**user_info)
+        else:
+            raise HTTPException(status_code=404, detail="User not found")
+    except KeycloakOperationError as e:
+        logger.error(f"Keycloak operation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/get_user_by_phone", response_model=UserResponse)
 async def get_user_phone(phone_request: PhoneRequest, api_key: str = Depends(get_api_key)):
-    user_info = get_user_by_phone(phone_request.phone_number)
-    if user_info:
-        return UserResponse(**user_info)
-    else:
-        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        user_info = get_user_by_phone(phone_request.phone_number)
+        if user_info:
+            return UserResponse(**user_info)
+        else:
+            raise HTTPException(status_code=404, detail="User not found")
+    except KeycloakOperationError as e:
+        logger.error(f"Keycloak operation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/authenticate", response_model=dict)
+async def authenticate(auth_request: PhoneAuthRequest, api_key: str = Depends(get_api_key)):
+    if rate_limit(f"authenticate:{auth_request.phone_number}", limit=5, period=300):  # 5 attempts per 5 minutes
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+
+    try:
+        user = get_user_by_phone_or_username(auth_request.phone_number)
+        if user:
+            return {"message": "User authenticated", "user": user}
+        else:
+            store_temp_data(auth_request.phone_number, {"phone_number": auth_request.phone_number})
+            return {"message": "User not found", "next_step": "check_email"}
+    except KeycloakOperationError as e:
+        logger.error(f"Authentication failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Authentication failed")
+
+@router.post("/check_email", response_model=dict)
+async def check_email(email_request: EmailAuthRequest, api_key: str = Depends(get_api_key)):
+    if rate_limit(f"check_email:{email_request.email}", limit=3, period=300):  # 3 attempts per 5 minutes
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+
+    try:
+        temp_data = get_temp_data(email_request.phone_number)
+        if not temp_data:
+            raise HTTPException(status_code=400, detail="Invalid request sequence")
+
+        user = get_user_by_email(email_request.email)
+        if user:
+            result = add_phone_to_user(user['id'], email_request.phone_number)
+            delete_temp_data(email_request.phone_number)
+            return {"message": "Phone number added to existing account", "user": user}
+        else:
+            store_temp_data(email_request.phone_number, {**temp_data, "email": email_request.email})
+            return {"message": "User not found", "next_step": "create_account"}
+    except KeycloakOperationError as e:
+        logger.error(f"Email check failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Email check failed")
+
+@router.post("/create_account", response_model=dict)
+async def create_account(user_data: CreateUserRequest, api_key: str = Depends(get_api_key)):
+    if rate_limit(f"create_account:{user_data.phone_number}", limit=2, period=3600):  # 2 attempts per hour
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+
+    try:
+        temp_data = get_temp_data(user_data.phone_number)
+        if not temp_data:
+            raise HTTPException(status_code=400, detail="Invalid request sequence")
+
+        result = create_user_with_phone(
+            phone_number=user_data.phone_number,
+            first_name=user_data.first_name,
+            last_name=user_data.last_name,
+            gender=user_data.gender,
+            country=user_data.country
+        )
+        # Store temp data with both user ID and email as keys
+        store_temp_data(result["user_id"], {**temp_data, **user_data.dict()})
+        store_temp_data(temp_data["email"], {**temp_data, **user_data.dict(), "user_id": result["user_id"]})
+        delete_temp_data(user_data.phone_number)
+        return {"message": "User account created", "user_id": result["user_id"], "next_step": "verify_email"}
+    except KeycloakOperationError as e:
+        logger.error(f"Account creation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Account creation failed")
+
+@router.post("/send_email_otp", response_model=dict)
+async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
+    if rate_limiter.rate_limit(f"send_email_otp:{email_request.email}", limit=3, period=900):  # 3 attempts per 15 minutes
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+
+    try:
+        otp = generate_otp()
+        store_otp(email_request.email, otp)
+        if send_otp_email(email_request.email, otp):
+            return {"message": "OTP sent successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send OTP email")
+    except Exception as e:
+        logger.error(f"Error in send_email_otp: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/verify_email", response_model=dict)
+async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Depends(get_api_key)):
+    if rate_limit(f"verify_email:{verify_data.email}", limit=5, period=300):  # 5 attempts per 5 minutes
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+
+    try:
+        temp_data = get_temp_data(verify_data.email)
+        if not temp_data:
+            raise HTTPException(status_code=400, detail="Invalid request sequence")
+
+        user_id = temp_data.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="User ID not found")
+
+        verification_result = verify_otp(verify_data.email, verify_data.otp)
+        if not verification_result["valid"]:
+            raise HTTPException(status_code=400, detail=verification_result["message"])
+
+        result = verify_email(user_id)
+        delete_temp_data(verify_data.email)
+        delete_temp_data(user_id)
+        return {"message": "Email verified successfully."}
+    except KeycloakOperationError as e:
+        logger.error(f"Failed to verify email: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to verify email")
+    except Exception as e:
+        logger.error(f"Error in verify_email_route: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Error handler for KeycloakOperationError
+@router.exception_handler(KeycloakOperationError)
+async def keycloak_exception_handler(request: Request, exc: KeycloakOperationError):
+    logger.error(f"Keycloak operation failed: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"message": "An error occurred while processing your request."},
+    )
+
+# Global exception handler
+@router.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"message": "An unexpected error occurred."},
+    )
