@@ -22,23 +22,20 @@ class KeycloakOperationError(Exception):
 
 @lru_cache(maxsize=1)
 def get_keycloak_admin():
-    keycloak_connection = KeycloakOpenIDConnection(
-        server_url=settings.KEYCLOAK_SERVER_URL,
-        user_realm_name="master",
-        client_id=settings.KEYCLOAK_API_CLIENT_ID,
-        realm_name=settings.KEYCLOAK_REALM,
-        username=settings.KEYCLOAK_USER_NAME,
-        password=settings.KEYCLOAK_PASSWORD,
-        verify=True
-    )
-    return KeycloakAdmin(connection=keycloak_connection)
-
-def create_keycloak_admin():
-    return get_keycloak_admin()
-    
-    except KeycloakError as e:
-        logger.error(f"Failed to create Keycloak admin: {str(e)}")
-        raise KeycloakOperationError("Failed to initialize Keycloak admin")
+    try:
+        keycloak_connection = KeycloakOpenIDConnection(
+            server_url=settings.KEYCLOAK_SERVER_URL,
+            user_realm_name="master",
+            client_id=settings.KEYCLOAK_API_CLIENT_ID,
+            realm_name=settings.KEYCLOAK_REALM,
+            username=settings.KEYCLOAK_USER_NAME,
+            password=settings.KEYCLOAK_PASSWORD,
+            verify=True
+        )
+        return KeycloakAdmin(connection=keycloak_connection)
+    except Exception as e:
+        logger.error(f"Error creating Keycloak admin: {str(e)}")
+        raise KeycloakOperationError("Failed to create Keycloak admin")
 
 def get_cache_key(identifier: str, identifier_type: str) -> str:
     return f"keycloak_user:{identifier_type}:{identifier}"
@@ -65,10 +62,10 @@ def get_user_info(user: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "email": user.get('email', ''),
         "enabled": user.get('enabled', False),
-        "phoneType": attributes.get('phoneType', [None])[0],
-        "phoneNumber": attributes.get('phoneNumber', [None])[0],
-        "gender": attributes.get('gender', [None])[0],
-        "phoneNumberVerified": attributes.get('phoneNumberVerified', [None])[0],
+        "phoneType": attributes.get('phoneType', [None])[0] if attributes.get('phoneType') else None,
+        "phoneNumber": attributes.get('phoneNumber', [None])[0] if attributes.get('phoneNumber') else None,
+        "gender": attributes.get('gender', [None])[0] if attributes.get('gender') else None,
+        "phoneNumberVerified": attributes.get('phoneNumberVerified', [None])[0] if attributes.get('phoneNumberVerified') else None,
         "firstName": user.get('firstName', ''),
         "lastName": user.get('lastName', '')
     }
