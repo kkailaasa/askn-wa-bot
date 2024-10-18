@@ -88,7 +88,7 @@ async def get_user_phone(phone_request: PhoneRequest, api_key: str = Depends(get
 
 @router.post("/authenticate", response_model=dict)
 async def authenticate(auth_request: PhoneAuthRequest, api_key: str = Depends(get_api_key)):
-    if rate_limiter.is_rate_limited(f"authenticate:{auth_request.phone_number}", limit=5, period=300):  # 5 attempts per 5 minutes
+    if rate_limiter.is_rate_limited(f"authenticate:{auth_request.phone_number}", limit=5, period=300):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
