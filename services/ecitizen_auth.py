@@ -8,7 +8,7 @@ import logging
 import secrets
 import time
 import redis
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
