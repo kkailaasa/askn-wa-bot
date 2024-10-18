@@ -6,9 +6,9 @@ from services.ecitizen_auth import (
     get_user_by_phone_or_username, add_phone_to_user, create_user_with_phone,
     verify_email, generate_otp, store_otp, verify_otp,
     KeycloakOperationError, get_user_by_email, get_user_by_phone,
-    check_email_exists, store_temp_data, get_temp_data, delete_temp_data
+    check_email_exists, store_temp_data, get_temp_data, delete_temp_data,
+    rate_limiter
 )
-from services.ecitizen_auth import RateLimiter
 from services.email_service import send_otp_email
 from services.auth import get_api_key
 from utils.twilio_validator import validate_twilio_request
@@ -88,7 +88,7 @@ async def get_user_phone(phone_request: PhoneRequest, api_key: str = Depends(get
 
 @router.post("/authenticate", response_model=dict)
 async def authenticate(auth_request: PhoneAuthRequest, api_key: str = Depends(get_api_key)):
-    if rate_limit(f"authenticate:{auth_request.phone_number}", limit=5, period=300):  # 5 attempts per 5 minutes
+    if rate_limiter.is_rate_limited(f"authenticate:{auth_request.phone_number}", limit=5, period=300):  # 5 attempts per 5 minutes
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
