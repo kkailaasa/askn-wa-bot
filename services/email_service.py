@@ -1,30 +1,41 @@
-from __future__ import print_function
-import sib_api_v3_sdk
-from sib_api_v3_sdk.rest import ApiException
+from envelope import Envelope
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 from core.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
-
-# Configure API key authorization
-configuration = sib_api_v3_sdk.Configuration()
-configuration.api_key['api-key'] = settings.BREVO_API_KEY
 
 def send_otp_email(email: str, otp: str):
     subject = 'Your Email Verification OTP'
     message = f'Your OTP for email verification is: {otp}. This OTP is valid for 10 minutes.'
 
     try:
-        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
-        send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
-            to=[{"email": email}],
-            sender={"name": settings.EMAIL_FROM_NAME, "email": settings.EMAIL_FROM},
-            subject=subject,
-            html_content=message
+        envelope = (
+            Envelope()
+            .from_((settings.EMAIL_FROM_NAME, settings.EMAIL_FROM))  # Use a tuple for name and email
+            .to(email)
+            .subject(subject)
+            .text(message)
         )
-        api_response = api_instance.send_transac_email(send_smtp_email)
-        logger.info(f"OTP email sent successfully to {email}. Message ID: {api_response.message_id}")
-        return True
-    except ApiException as e:
-        logger.error(f"Exception when calling TransactionalEmailsApi->send_transac_email: {e}")
+
+        # Convert Envelope to SendGrid Mail object
+        mail = Mail(
+            from_email=(settings.EMAIL_FROM, settings.EMAIL_FROM_NAME),  # Use a tuple for email and name
+            to_emails=envelope.to()[0].address,
+            subject=envelope.subject(),
+            plain_text_content=envelope.text_body()
+        )
+
+        sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
+        response = sg.send(mail)
+
+        if response.status_code == 202:
+            logger.info(f"OTP email sent successfully to {email}")
+            return True
+        else:
+            logger.error(f"Failed to send OTP email to {email}. Status code: {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Error sending email to {email}: {str(e)}")
         return False

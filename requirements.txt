@@ -2,7 +2,7 @@ fastapi
 uvicorn
 twilio
 python-decouple
-python-multipart
+python_multipart
 pyngrok
 dify-client
 redis
@@ -10,4 +10,5 @@ python-keycloak
 celery
 pydantic-settings
 pydantic[email]
-sib-api-v3-sdk
+envelope
+sendgrid
