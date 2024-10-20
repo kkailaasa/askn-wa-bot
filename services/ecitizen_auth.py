@@ -60,6 +60,7 @@ def set_in_cache(key: str, data: Dict[str, Any]):
 def get_user_info(user: Dict[str, Any]) -> Dict[str, Any]:
     attributes = user.get('attributes', {})
     return {
+        "username": user.get('username', ''),
         "email": user.get('email', ''),
         "enabled": user.get('enabled', False),
         "phoneType": attributes.get('phoneType', [None])[0] if attributes.get('phoneType') else None,
@@ -67,9 +68,8 @@ def get_user_info(user: Dict[str, Any]) -> Dict[str, Any]:
         "gender": attributes.get('gender', [None])[0] if attributes.get('gender') else None,
         "phoneNumberVerified": attributes.get('phoneNumberVerified', [None])[0] if attributes.get('phoneNumberVerified') else None,
         "firstName": user.get('firstName', ''),
-        "lastName": user.get('lastName', ''),
-        "id": user.get('id', '')
-        }
+        "lastName": user.get('lastName', '')
+    }
 
 def get_user_by_identifier(identifier: str, identifier_type: str) -> Optional[Dict[str, Any]]:
     cache_key = get_cache_key(identifier, identifier_type)
@@ -113,7 +113,10 @@ def get_user_by_phone_or_username(identifier: str) -> Optional[Dict[str, Any]]:
             users = keycloak_admin.get_users({"q": f"phoneNumber:{identifier}"})
         
         if users:
-            return get_user_info(users[0])
+            logger.debug(f"Raw user data from Keycloak: {users[0]}")
+            user_info = get_user_info(users[0])
+            logger.debug(f"Processed user info: {user_info}")
+            return user_info
         return None
     except KeycloakError as e:
         logger.error(f"Keycloak error while getting user: {str(e)}")
