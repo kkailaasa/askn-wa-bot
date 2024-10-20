@@ -53,10 +53,10 @@ class Settings(BaseSettings):
     CORS_ALLOWED_ORIGINS: str = ""
 
     # Email Configuration
-    BREVO_API_KEY: str
+    SENDGRID_API_KEY: str
     EMAIL_FROM_NAME: str
     EMAIL_FROM: str
-
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
