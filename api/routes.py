@@ -102,7 +102,11 @@ async def create_account(user_data: CreateUserRequest, api_key: str = Depends(ge
             verification_route=temp_data.get("verificationRoute", "ngpt_wa")
         )
         delete_temp_data(user_data.phone_number)
-        return {"message": "User account created", "user_id": result["user_id"], "next_step": "verify_email"}
+        return {
+            "message": "User account created with UPDATE_PASSWORD action",
+            "user_id": result["user_id"],
+            "next_step": "verify_email"
+        }
     except KeycloakOperationError as e:
         logger.error(f"Failed to create user account: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to create user account")

@@ -166,8 +166,16 @@ def create_user_with_phone(phone_number: str, email: str, first_name: str, last_
                 "verificationRoute": [verification_route],
                 "gender": [gender],
                 "country": [country]
-            }
+            },
+            "requiredActions": ["UPDATE_PASSWORD"]  # set the required action
         }
+
+        user_id = keycloak_admin.create_user(user_data)
+        logger.info(f"User created with phone number: {phone_number} and UPDATE_PASSWORD action")
+        return {"user_id": user_id, "message": "User created successfully with UPDATE_PASSWORD action."}
+    except KeycloakError as e:
+        logger.error(f"Keycloak error while creating user: {str(e)}")
+        raise KeycloakOperationError("Failed to create user")
 
         user_id = keycloak_admin.create_user(user_data)
         logger.info(f"User created with phone number: {phone_number}")
