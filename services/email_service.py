@@ -1,6 +1,5 @@
-from envelope import Envelope
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email, Content
+from sendgrid.helpers.mail import Mail, Email, To, Content
 from core.config import settings
 import logging
 
@@ -11,20 +10,11 @@ def send_otp_email(email: str, otp: str):
     message = f'Your OTP for email verification is: {otp}. This OTP is valid for 10 minutes.'
 
     try:
-        logger.debug(f"Creating Envelope with from: {settings.EMAIL_FROM}, to: {email}")
-        envelope = (
-            Envelope()
-            .from_(settings.EMAIL_FROM)
-            .to(email)
-            .subject(subject)
-            .text(message)
-        )
-
         logger.debug(f"Creating SendGrid Mail object")
         from_email = Email(email=settings.EMAIL_FROM, name=settings.EMAIL_FROM_NAME)
-        to_email = Email(email=envelope.to()[0].address)
+        to_email = To(email=email)
         content = Content("text/plain", message)
-        mail = Mail(from_email, to_email, envelope.subject(), content)
+        mail = Mail(from_email, to_email, subject, content)
 
         logger.debug(f"Sending email via SendGrid")
         sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
