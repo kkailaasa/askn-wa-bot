@@ -99,15 +99,6 @@ def get_user_by_identifier(identifier: str, identifier_type: str) -> Optional[Di
         logger.error(f"Keycloak error while getting user by {identifier_type}: {str(e)}")
         raise KeycloakOperationError(f"Failed to get user by {identifier_type}")
 
-def get_user_by_email(email: str) -> List[Dict[str, Any]]:
-    try:
-        keycloak_admin = create_keycloak_admin()
-        users = keycloak_admin.get_users({"email": email})
-        return [get_user_info(user) for user in users]
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while getting users by email: {str(e)}")
-        raise KeycloakOperationError("Failed to get users by email")
-
 def get_user_by_phone(phone_number: str) -> Optional[Dict[str, Any]]:
     return get_user_by_identifier(phone_number, "phone")
 
@@ -127,18 +118,48 @@ def get_user_by_phone_or_username(identifier: str) -> Optional[Dict[str, Any]]:
         logger.error(f"Keycloak error while getting user: {str(e)}")
         raise KeycloakOperationError("Failed to get user")
 
-def create_user_with_phone(phone_number: str, first_name: str, last_name: str, gender: str, country: str) -> Dict[str, Any]:
+def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    try:
+        keycloak_admin = create_keycloak_admin()
+        users = keycloak_admin.get_users({"email": email})
+        if users:
+            return get_user_info(users[0])
+        return None
+    except KeycloakError as e:
+        logger.error(f"Keycloak error while getting user by email: {str(e)}")
+        raise KeycloakOperationError("Failed to get user by email")
+
+def add_phone_attributes_to_user(user_id: str, phone_number: str, phone_type: str, phone_verified: str, verification_route: str) -> Dict[str, Any]:
+    try:
+        keycloak_admin = create_keycloak_admin()
+        user_info = keycloak_admin.get_user(user_id)
+        attributes = user_info.get('attributes', {})
+        attributes['phoneNumber'] = [phone_number]
+        attributes['phoneType'] = [phone_type]
+        attributes['phoneVerified'] = [phone_verified]
+        attributes['verificationRoute'] = [verification_route]
+        keycloak_admin.update_user(user_id=user_id, payload={"attributes": attributes})
+        logger.info(f"Phone attributes added for user ID: {user_id}")
+        return {"message": "Phone attributes added successfully."}
+    except KeycloakError as e:
+        logger.error(f"Keycloak error while adding phone attributes to user: {str(e)}")
+        raise KeycloakOperationError("Failed to add phone attributes to user")
+
+def create_user_with_phone(phone_number: str, email: str, first_name: str, last_name: str, gender: str, country: str, phone_type: str, phone_verified: str, verification_route: str) -> Dict[str, Any]:
     try:
         keycloak_admin = create_keycloak_admin()
 
         user_data = {
             "username": phone_number,
+            "email": email,
             "enabled": True,
             "firstName": first_name,
             "lastName": last_name,
             "attributes": {
                 "phoneNumber": [phone_number],
-                "phoneType": ["whatsapp"],
+                "phoneType": [phone_type],
+                "phoneVerified": [phone_verified],
+                "verificationRoute": [verification_route],
                 "gender": [gender],
                 "country": [country]
             }
@@ -150,45 +171,6 @@ def create_user_with_phone(phone_number: str, first_name: str, last_name: str, g
     except KeycloakError as e:
         logger.error(f"Keycloak error while creating user: {str(e)}")
         raise KeycloakOperationError("Failed to create user")
-
-def add_phone_to_user(email: str, phone_number: str) -> Dict[str, Any]:
-    try:
-        keycloak_admin = create_keycloak_admin()
-        users = keycloak_admin.get_users({"email": email})
-        if not users:
-            raise KeycloakOperationError(f"User with email {email} not found")
-        
-        user = users[0]
-        user_id = user['id']
-        
-        attributes = user.get('attributes', {})
-        attributes['phoneNumber'] = [phone_number]
-        keycloak_admin.update_user(user_id=user_id, payload={"attributes": attributes})
-        logger.info(f"Phone number added for user with email: {email}")
-        return {"message": "Phone number added successfully."}
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while adding phone to user: {str(e)}")
-        raise KeycloakOperationError("Failed to add phone to user")
-
-def check_email_exists(email: str) -> bool:
-    try:
-        keycloak_admin = create_keycloak_admin()
-        users_by_username = keycloak_admin.get_users({"username": email})
-        users_by_email = keycloak_admin.get_users({"email": email})
-        return bool(users_by_username or users_by_email)
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while checking email existence: {str(e)}")
-        raise KeycloakOperationError("Failed to check email existence")
-
-def add_email_to_user(user_id: str, email: str) -> Dict[str, Any]:
-    try:
-        keycloak_admin = create_keycloak_admin()
-        keycloak_admin.update_user(user_id=user_id, payload={"email": email})
-        logger.info(f"Email added for user ID: {user_id}")
-        return {"message": "Email added successfully."}
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while adding email to user: {str(e)}")
-        raise KeycloakOperationError("Failed to add email to user")
 
 def verify_email(email: str) -> Dict[str, Any]:
     try:
@@ -270,9 +252,7 @@ __all__ = [
     'get_user_by_phone',
     'get_user_by_phone_or_username',
     'create_user_with_phone',
-    'add_phone_to_user',
-    'check_email_exists',
-    'add_email_to_user',
+    'add_phone_attributes_to_user',
     'verify_email',
     'generate_otp',
     'store_otp',
