@@ -5,7 +5,7 @@ import logging
 from services.ecitizen_auth import (
     get_user_by_phone_or_username, add_phone_attributes_to_user, create_user_with_phone,
     verify_email, generate_otp, store_otp, verify_otp,
-    KeycloakOperationError, get_user_by_email, check_email_exists,
+    KeycloakOperationError, get_user_by_email,
     store_temp_data, get_temp_data, delete_temp_data,
     rate_limiter
 )
