@@ -9,11 +9,11 @@ def send_otp_email(email: str, otp: str):
     message = f'Your OTP for email verification is: {otp}. This OTP is valid for 10 minutes.'
 
     try:
-        envelope = Envelope(
-            subject=subject,
-            message=message,
-            from_addr=settings.EMAIL_FROM,
-            to_addr=email
+        envelope = (
+            Envelope(message)
+            .subject(subject)
+            .from_(settings.EMAIL_FROM)
+            .to(email)
         )
 
         envelope.smtp(
