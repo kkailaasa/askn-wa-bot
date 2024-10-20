@@ -53,12 +53,9 @@ class Settings(BaseSettings):
     CORS_ALLOWED_ORIGINS: str = ""
 
     # Email Configuration
+    BREVO_API_KEY: str
+    EMAIL_FROM_NAME: str
     EMAIL_FROM: str
-    SMTP_HOST: str
-    SMTP_PORT: int
-    SMTP_USERNAME: str
-    SMTP_PASSWORD: str
-    SMTP_USE_TLS: bool = True
 
     class Config:
         env_file = ".env"

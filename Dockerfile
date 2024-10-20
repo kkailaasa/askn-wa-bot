@@ -3,7 +3,7 @@ FROM python:3.10-slim
 # Install gosu, libmagic, and its development files
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y gosu libmagic1 libmagic-dev; \
+    apt-get install -y gosu ; \
     rm -rf /var/lib/apt/lists/*; \
     # verify that the binary works
     gosu nobody true
