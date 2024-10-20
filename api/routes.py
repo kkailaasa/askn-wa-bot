@@ -34,6 +34,10 @@ class CreateUserRequest(BaseModel):
     gender: str
     country: str
 
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
 @router.post("/check_phone", response_model=dict)
 async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_api_key)):
     try:
@@ -130,10 +134,6 @@ async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Dep
             raise HTTPException(status_code=400, detail=verification_result["message"])
 
         # If OTP is valid, mark the email as verified in Keycloak
-        users = get_user_by_email(verify_data.email)
-        if not users or len(users) == 0:
-            raise HTTPException(status_code=404, detail="User not found")
-
         result = verify_email(verify_data.email)
         return {"message": "Email verified successfully."}
     except KeycloakOperationError as e:
