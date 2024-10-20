@@ -1,9 +1,9 @@
 FROM python:3.10-slim
 
-# Install gosu for easy step-down from root
+# Install gosu, libmagic, and its development files
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y gosu; \
+    apt-get install -y gosu libmagic1 libmagic-dev; \
     rm -rf /var/lib/apt/lists/*; \
     # verify that the binary works
     gosu nobody true
