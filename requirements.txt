@@ -11,3 +11,4 @@ celery
 pydantic-settings
 pydantic[email]
 envelope
+python-magic
