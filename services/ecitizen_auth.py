@@ -67,8 +67,9 @@ def get_user_info(user: Dict[str, Any]) -> Dict[str, Any]:
         "gender": attributes.get('gender', [None])[0] if attributes.get('gender') else None,
         "phoneNumberVerified": attributes.get('phoneNumberVerified', [None])[0] if attributes.get('phoneNumberVerified') else None,
         "firstName": user.get('firstName', ''),
-        "lastName": user.get('lastName', '')
-    }
+        "lastName": user.get('lastName', ''),
+        "id": user.get('id', '')
+        }
 
 def get_user_by_identifier(identifier: str, identifier_type: str) -> Optional[Dict[str, Any]]:
     cache_key = get_cache_key(identifier, identifier_type)
