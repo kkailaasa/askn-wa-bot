@@ -1,6 +1,6 @@
 from envelope import Envelope
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+from sendgrid.helpers.mail import Mail, Email
 from core.config import settings
 import logging
 
@@ -13,15 +13,16 @@ def send_otp_email(email: str, otp: str):
     try:
         envelope = (
             Envelope()
-            .from_((settings.EMAIL_FROM_NAME, settings.EMAIL_FROM))  # Use a tuple for name and email
+            .from_(settings.EMAIL_FROM)
             .to(email)
             .subject(subject)
             .text(message)
         )
 
         # Convert Envelope to SendGrid Mail object
+        from_email = Email(email=settings.EMAIL_FROM, name=settings.EMAIL_FROM_NAME)
         mail = Mail(
-            from_email=(settings.EMAIL_FROM, settings.EMAIL_FROM_NAME),  # Use a tuple for email and name
+            from_email=from_email,
             to_emails=envelope.to()[0].address,
             subject=envelope.subject(),
             plain_text_content=envelope.text_body()
