@@ -110,7 +110,7 @@ async def check_email(email_request: EmailAuthRequest, api_key: str = Depends(ge
         users = get_user_by_email(email_request.email)
         if users and len(users) > 0:
             user = users[0]
-            result = add_phone_to_user(user['id'], email_request.phone_number)
+            result = add_phone_to_user(user['email'], email_request.phone_number)
             delete_temp_data(email_request.phone_number)
             return {"message": "Phone number added to existing account", "user": user}
         else:

@@ -151,14 +151,20 @@ def create_user_with_phone(phone_number: str, first_name: str, last_name: str, g
         logger.error(f"Keycloak error while creating user: {str(e)}")
         raise KeycloakOperationError("Failed to create user")
 
-def add_phone_to_user(user_id: str, phone_number: str) -> Dict[str, Any]:
+def add_phone_to_user(email: str, phone_number: str) -> Dict[str, Any]:
     try:
         keycloak_admin = create_keycloak_admin()
-        user_info = keycloak_admin.get_user(user_id)
-        attributes = user_info.get('attributes', {})
+        users = keycloak_admin.get_users({"email": email})
+        if not users:
+            raise KeycloakOperationError(f"User with email {email} not found")
+        
+        user = users[0]
+        user_id = user['id']
+        
+        attributes = user.get('attributes', {})
         attributes['phoneNumber'] = [phone_number]
         keycloak_admin.update_user(user_id=user_id, payload={"attributes": attributes})
-        logger.info(f"Phone number added for user ID: {user_id}")
+        logger.info(f"Phone number added for user with email: {email}")
         return {"message": "Phone number added successfully."}
     except KeycloakError as e:
         logger.error(f"Keycloak error while adding phone to user: {str(e)}")
