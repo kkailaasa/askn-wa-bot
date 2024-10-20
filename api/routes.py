@@ -118,10 +118,11 @@ async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get
         if send_otp_email(email_request.email, otp):
             return {"message": "OTP sent successfully"}
         else:
+            logger.error(f"Failed to send OTP email to {email_request.email}")
             raise HTTPException(status_code=500, detail="Failed to send OTP email")
     except Exception as e:
         logger.error(f"Error in send_email_otp: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.post("/verify_email", response_model=dict)
 async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Depends(get_api_key)):
