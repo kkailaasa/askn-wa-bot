@@ -1,6 +1,6 @@
 from envelope import Envelope
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email
+from sendgrid.helpers.mail import Mail, Email, Content
 from core.config import settings
 import logging
 
@@ -11,6 +11,7 @@ def send_otp_email(email: str, otp: str):
     message = f'Your OTP for email verification is: {otp}. This OTP is valid for 10 minutes.'
 
     try:
+        logger.debug(f"Creating Envelope with from: {settings.EMAIL_FROM}, to: {email}")
         envelope = (
             Envelope()
             .from_(settings.EMAIL_FROM)
@@ -19,15 +20,13 @@ def send_otp_email(email: str, otp: str):
             .text(message)
         )
 
-        # Convert Envelope to SendGrid Mail object
+        logger.debug(f"Creating SendGrid Mail object")
         from_email = Email(email=settings.EMAIL_FROM, name=settings.EMAIL_FROM_NAME)
-        mail = Mail(
-            from_email=from_email,
-            to_emails=envelope.to()[0].address,
-            subject=envelope.subject(),
-            plain_text_content=envelope.text_body()
-        )
+        to_email = Email(email=envelope.to()[0].address)
+        content = Content("text/plain", message)
+        mail = Mail(from_email, to_email, envelope.subject(), content)
 
+        logger.debug(f"Sending email via SendGrid")
         sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
         response = sg.send(mail)
 
@@ -38,5 +37,5 @@ def send_otp_email(email: str, otp: str):
             logger.error(f"Failed to send OTP email to {email}. Status code: {response.status_code}")
             return False
     except Exception as e:
-        logger.error(f"Error sending email to {email}: {str(e)}")
+        logger.error(f"Error sending email to {email}: {str(e)}", exc_info=True)
         return False
