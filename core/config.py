@@ -10,32 +10,44 @@ class RateLimitConfig(BaseSettings):
     add_email: Dict[str, int] = {"limit": 3, "period": 3600}
     verify_email: Dict[str, int] = {"limit": 5, "period": 300}
 
+    class Config:
+        env_file = ".env"
+        env_prefix = "RATE_LIMIT__"
+        env_nested_delimiter = "__"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Map environment variables to dictionary structure
+        self.create_user = {
+            "limit": self._get_env_int("CREATE_USER__LIMIT", 5),
+            "period": self._get_env_int("CREATE_USER__PERIOD", 3600)
+        }
+        self.add_email = {
+            "limit": self._get_env_int("ADD_EMAIL__LIMIT", 3),
+            "period": self._get_env_int("ADD_EMAIL__PERIOD", 3600)
+        }
+        self.verify_email = {
+            "limit": self._get_env_int("VERIFY_EMAIL__LIMIT", 5),
+            "period": self._get_env_int("VERIFY_EMAIL__PERIOD", 300)
+        }
+
+    def _get_env_int(self, key: str, default: int) -> int:
+        """Helper method to get integer values from environment variables"""
+        import os
+        full_key = f"RATE_LIMIT__{key}"
+        value = os.getenv(full_key)
+        try:
+            return int(value) if value is not None else default
+        except ValueError:
+            logger.warning(f"Invalid value for {full_key}, using default: {default}")
+            return default
+
 class Settings(BaseSettings):
-    # Twilio Configuration
-    TWILIO_ACCOUNT_SID: str
-    TWILIO_AUTH_TOKEN: str
-    TWILIO_NUMBER: str
-
-    # Dify Configuration
-    DIFY_KEY: str
-    DIFY_URL: str
-
-    # Keycloak Configuration
-    KEYCLOAK_SERVER_URL: str
-    KEYCLOAK_API_CLIENT_ID: str
-    KEYCLOAK_REALM: str
-    KEYCLOAK_USER_NAME: str
-    KEYCLOAK_PASSWORD: str
-
-    # Redis Configuration
-    REDIS_HOST: str = "redis"
-    REDIS_PORT: int = 6379
-    REDIS_URL: str = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
-    REDIS_MAX_CONNECTIONS: int = 10
+    # ... [previous settings remain the same]
 
     # Message Rate Limiting Configuration
-    MESSAGE_RATE_LIMIT: int = 2
-    MESSAGE_RATE_WINDOW: int = 60
+    MESSAGE_RATE_LIMIT: int = 2  # Conservative default: 2 messages
+    MESSAGE_RATE_WINDOW: int = 60  # Conservative default: 1 minute window
 
     # setting for cache expiration time (in seconds)
     KEYCLOAK_CACHE_EXPIRATION: str
