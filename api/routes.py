@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Form, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from typing import Optional
-from core.config import settings
+import logging
 from services.ecitizen_auth import (
     get_user_by_phone_or_username, add_phone_attributes_to_user, create_user_with_phone,
     verify_email, generate_otp, store_otp, verify_otp,
@@ -12,11 +12,10 @@ from services.ecitizen_auth import (
 from services.email_service import send_otp_email
 from services.auth import get_api_key
 from utils.twilio_validator import validate_twilio_request
-from pydantic import BaseModel, EmailStr, Field
-from tasks.celery_tasks import process_question
+from utils.redis_helpers import is_rate_limited, get_remaining_limit
 from services import ChatService, MessagingService
-from utils.redis_helpers import is_rate_limited
-import logging
+from pydantic import BaseModel, EmailStr, Field
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +101,15 @@ async def handle_message(
             status_code=500
         )
 
-
 @router.post("/check_phone", response_model=dict)
 async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_api_key)):
+    if rate_limiter.is_rate_limited(
+        f"create_user:{phone_request.phone_number}",
+        limit=settings.rate_limit["create_user"]["limit"],
+        period=settings.rate_limit["create_user"]["period"]
+    ):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+
     try:
         user = get_user_by_phone_or_username(phone_request.phone_number)
         if user:
@@ -118,6 +123,13 @@ async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_ap
 
 @router.post("/check_email", response_model=dict)
 async def check_email(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
+    if rate_limiter.is_rate_limited(
+        f"add_email:{email_request.email}",
+        limit=settings.rate_limit["add_email"]["limit"],
+        period=settings.rate_limit["add_email"]["period"]
+    ):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+
     try:
         temp_data = get_temp_data(email_request.phone_number)
         if not temp_data:
@@ -150,6 +162,13 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
 
 @router.post("/create_account", response_model=dict)
 async def create_account(user_data: CreateUserRequest, api_key: str = Depends(get_api_key)):
+    if rate_limiter.is_rate_limited(
+        f"create_user:{user_data.phone_number}",
+        limit=settings.rate_limit["create_user"]["limit"],
+        period=settings.rate_limit["create_user"]["period"]
+    ):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+
     temp_data = get_temp_data(user_data.phone_number)
     if not temp_data:
         raise HTTPException(status_code=400, detail="Invalid request sequence")
@@ -179,9 +198,9 @@ async def create_account(user_data: CreateUserRequest, api_key: str = Depends(ge
 @router.post("/send_email_otp", response_model=dict)
 async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
     if rate_limiter.is_rate_limited(
-        f"send_email_otp:{email_request.email}",
-        limit=settings.RATE_LIMIT.add_email["limit"],
-        period=settings.RATE_LIMIT.add_email["period"]
+        f"add_email:{email_request.email}",
+        limit=settings.rate_limit["add_email"]["limit"],
+        period=settings.rate_limit["add_email"]["period"]
     ):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
@@ -201,8 +220,8 @@ async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get
 async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Depends(get_api_key)):
     if rate_limiter.is_rate_limited(
         f"verify_email:{verify_data.email}",
-        limit=settings.RATE_LIMIT.verify_email["limit"],
-        period=settings.RATE_LIMIT.verify_email["period"]
+        limit=settings.rate_limit["verify_email"]["limit"],
+        period=settings.rate_limit["verify_email"]["period"]
     ):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 

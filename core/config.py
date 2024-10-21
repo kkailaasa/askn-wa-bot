@@ -1,36 +1,10 @@
 # core/config.py
 from pydantic_settings import BaseSettings
-from typing import List, Dict
+from typing import List, Dict, Any
 import logging
-import os
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-class RateLimitConfig:
-    def __init__(self):
-        # Default values
-        self.create_user = {
-            "limit": self._get_env_int("CREATE_USER__LIMIT", 5),
-            "period": self._get_env_int("CREATE_USER__PERIOD", 3600)
-        }
-        self.add_email = {
-            "limit": self._get_env_int("ADD_EMAIL__LIMIT", 3),
-            "period": self._get_env_int("ADD_EMAIL__PERIOD", 3600)
-        }
-        self.verify_email = {
-            "limit": self._get_env_int("VERIFY_EMAIL__LIMIT", 5),
-            "period": self._get_env_int("VERIFY_EMAIL__PERIOD", 300)
-        }
-
-    def _get_env_int(self, key: str, default: int) -> int:
-        full_key = f"RATE_LIMIT__{key}"
-        value = os.getenv(full_key)
-        try:
-            return int(value) if value is not None else default
-        except ValueError:
-            logger.warning(f"Invalid value for {full_key}, using default: {default}")
-            return default
 
 class Settings(BaseSettings):
     # Twilio Configuration
@@ -56,8 +30,8 @@ class Settings(BaseSettings):
     REDIS_MAX_CONNECTIONS: int = 10
 
     # Message Rate Limiting Configuration
-    MESSAGE_RATE_LIMIT: int = 2  # Conservative default: 2 messages
-    MESSAGE_RATE_WINDOW: int = 60  # Conservative default: 1 minute window
+    MESSAGE_RATE_LIMIT: int = 2
+    MESSAGE_RATE_WINDOW: int = 60
 
     # setting for cache expiration time (in seconds)
     KEYCLOAK_CACHE_EXPIRATION: str
@@ -79,15 +53,41 @@ class Settings(BaseSettings):
     SENDGRID_API_KEY: str
     EMAIL_FROM_NAME: str
     EMAIL_FROM: str
-    
+
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "allow"  # Allow extra fields from environment variables
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.CORS_ALLOWED_ORIGINS = self._parse_list_from_env(self.CORS_ALLOWED_ORIGINS)
-        self.RATE_LIMIT = RateLimitConfig()  # Initialize rate limit config after main settings
+        self.rate_limit_config = self._init_rate_limit_config()
+
+    def _init_rate_limit_config(self) -> Dict[str, Dict[str, int]]:
+        """Initialize rate limit configuration from environment variables"""
+        import os
+        
+        defaults = {
+            "create_user": {"limit": 5, "period": 3600},
+            "add_email": {"limit": 3, "period": 3600},
+            "verify_email": {"limit": 5, "period": 300}
+        }
+
+        config = {}
+        for key in defaults:
+            limit_env = f"RATE_LIMIT__{key.upper()}__LIMIT"
+            period_env = f"RATE_LIMIT__{key.upper()}__PERIOD"
+            
+            limit = os.getenv(limit_env, str(defaults[key]["limit"]))
+            period = os.getenv(period_env, str(defaults[key]["period"]))
+            
+            config[key] = {
+                "limit": int(limit),
+                "period": int(period)
+            }
+        
+        return config
 
     @staticmethod
     def _parse_list_from_env(value: str) -> List[str]:
@@ -99,14 +99,16 @@ class Settings(BaseSettings):
         logger.debug(f"Parsed value: {parsed}")
         return parsed
 
+    @property
+    def rate_limit(self) -> Dict[str, Dict[str, int]]:
+        return self.rate_limit_config
+
 # Initialize settings
 try:
     settings = Settings()
     logger.debug(f"CORS Allowed Origins: {settings.CORS_ALLOWED_ORIGINS}")
     logger.debug(f"FastAPI Port: {settings.PORT}")
-    logger.debug(f"Create User Rate Limit: {settings.RATE_LIMIT.create_user}")
-    logger.debug(f"Add Email Rate Limit: {settings.RATE_LIMIT.add_email}")
-    logger.debug(f"Verify Email Rate Limit: {settings.RATE_LIMIT.verify_email}")
+    logger.debug(f"Rate Limit Config: {settings.rate_limit}")
     logger.debug(f"Message Rate Limit: {settings.MESSAGE_RATE_LIMIT}")
     logger.debug(f"Message Rate Window: {settings.MESSAGE_RATE_WINDOW}")
 except Exception as e:
