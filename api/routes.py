@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Form, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from typing import Optional
-import logging
+from core.config import settings
 from services.ecitizen_auth import (
     get_user_by_phone_or_username, add_phone_attributes_to_user, create_user_with_phone,
     verify_email, generate_otp, store_otp, verify_otp,
@@ -16,6 +16,7 @@ from pydantic import BaseModel, EmailStr, Field
 from tasks.celery_tasks import process_question
 from services import ChatService, MessagingService
 from utils.redis_helpers import is_rate_limited
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -51,33 +52,55 @@ async def handle_message(
 
     # Check rate limiting
     if is_rate_limited(From):
-        logger.warning(f"Rate limit exceeded for {From}")
-        return JSONResponse(content={"message": "Rate limit exceeded. Please try again later."}, status_code=429)
+        remaining, reset_time = get_remaining_limit(From)
+        logger.warning(f"Rate limit exceeded for {From}. Resets in {reset_time} seconds")
+        return JSONResponse(
+            content={
+                "message": "Rate limit exceeded. Please try again later.",
+                "reset_in_seconds": reset_time
+            },
+            status_code=429
+        )
 
     try:
-        # Process the message asynchronously
-        process_question.delay(Body, From)
-        
-        # Send an immediate response to acknowledge receipt
-        return JSONResponse(content={"message": "Message received and being processed."}, status_code=202)
+        # Initialize services
+        chat_service = ChatService()
+        messaging_service = MessagingService()
+
+        # Get or create conversation ID
+        conversation_id = chat_service.get_conversation_id(From)
+
+        # Get response from chat service
+        response = chat_service.create_chat_message(
+            user=From,
+            query=Body,
+            conversation_id=conversation_id
+        )
+
+        # Send response back to user
+        messaging_service.send_message(From, response)
+
+        return JSONResponse(
+            content={"message": "Message processed successfully."},
+            status_code=200
+        )
+
     except Exception as e:
         logger.error(f"Error processing message: {str(e)}")
-        return JSONResponse(content={"message": "An error occurred while processing your message."}, status_code=500)
+        # Try to send error message to user
+        try:
+            messaging_service = MessagingService()
+            messaging_service.send_message(
+                From,
+                "Sorry, an error occurred while processing your message. Please try again later."
+            )
+        except Exception as send_error:
+            logger.error(f"Failed to send error message: {str(send_error)}")
 
-async def process_and_respond(body: str, from_number: str):
-    chat_service = ChatService()
-    messaging_service = MessagingService()
-
-    try:
-        conversation_id = chat_service.get_conversation_id(from_number)
-        
-        response = chat_service.create_chat_message(from_number, body, conversation_id)
-        
-        messaging_service.send_message(from_number, response)
-    except Exception as e:
-        logger.error(f"Error in process_and_respond: {str(e)}")
-        # Send an error message to the user
-        messaging_service.send_message(from_number, "Sorry, an error occurred while processing your message. Please try again later.")
+        return JSONResponse(
+            content={"message": "An error occurred while processing your message."},
+            status_code=500
+        )
 
 
 @router.post("/check_phone", response_model=dict)
@@ -155,7 +178,11 @@ async def create_account(user_data: CreateUserRequest, api_key: str = Depends(ge
 
 @router.post("/send_email_otp", response_model=dict)
 async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
-    if rate_limiter.is_rate_limited(f"send_email_otp:{email_request.email}", limit=100, period=900):  # 3 attempts per 15 minutes
+    if rate_limiter.is_rate_limited(
+        f"send_email_otp:{email_request.email}",
+        limit=settings.RATE_LIMIT.add_email["limit"],
+        period=settings.RATE_LIMIT.add_email["period"]
+    ):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
@@ -172,7 +199,11 @@ async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get
 
 @router.post("/verify_email", response_model=dict)
 async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Depends(get_api_key)):
-    if rate_limiter.is_rate_limited(f"verify_email:{verify_data.email}", limit=100, period=300):  # 5 attempts per 5 minutes
+    if rate_limiter.is_rate_limited(
+        f"verify_email:{verify_data.email}",
+        limit=settings.RATE_LIMIT.verify_email["limit"],
+        period=settings.RATE_LIMIT.verify_email["period"]
+    ):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
