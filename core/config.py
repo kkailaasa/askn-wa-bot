@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     REDIS_URL: str = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
     REDIS_MAX_CONNECTIONS: int = 10
 
+    # Message Rate Limiting Configuration
+    MESSAGE_RATE_LIMIT: int = 2
+    MESSAGE_RATE_WINDOW: int = 60
+
     # setting for cache expiration time (in seconds)
     KEYCLOAK_CACHE_EXPIRATION: str
 
@@ -43,7 +47,7 @@ class Settings(BaseSettings):
     RATE_LIMIT: RateLimitConfig = RateLimitConfig()
 
     # FastAPI Configuration
-    PORT: int = 8000  # This is the internal FastAPI port
+    PORT: int = 8000
 
     # Celery Configuration
     CELERY_BROKER_URL: str = REDIS_URL
@@ -56,10 +60,12 @@ class Settings(BaseSettings):
     SENDGRID_API_KEY: str
     EMAIL_FROM_NAME: str
     EMAIL_FROM: str
-    
+
     class Config:
         env_file = ".env"
-        case_sensitive = False
+        case_sensitive = True
+        env_prefix = ""
+        extra = "ignore"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -81,6 +87,8 @@ try:
     logger.debug(f"CORS Allowed Origins: {settings.CORS_ALLOWED_ORIGINS}")
     logger.debug(f"FastAPI Port: {settings.PORT}")
     logger.debug(f"Rate Limit Config: {settings.RATE_LIMIT}")
+    logger.debug(f"Message Rate Limit: {settings.MESSAGE_RATE_LIMIT}")
+    logger.debug(f"Message Rate Window: {settings.MESSAGE_RATE_WINDOW}")
 except Exception as e:
     logger.error(f"Error initializing settings: {str(e)}")
     raise
