@@ -3,6 +3,7 @@ from core.config import settings
 import logging
 from services import ChatService, MessagingService
 from utils.redis_pool import get_redis_client
+import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -84,7 +85,6 @@ def cleanup_redis_data():
     except Exception as e:
         logger.error(f"Error during Redis cleanup: {str(e)}")
 
-# Update Celery beat schedule
 app.conf.beat_schedule = {
     'cleanup-redis-data': {
         'task': 'tasks.celery_tasks.cleanup_redis_data',

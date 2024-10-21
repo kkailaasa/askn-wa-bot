@@ -3,11 +3,19 @@ from fastapi.responses import JSONResponse
 from typing import Optional
 import logging
 from services.ecitizen_auth import (
-    get_user_by_phone_or_username, add_phone_attributes_to_user, create_user_with_phone,
-    verify_email, generate_otp, store_otp, verify_otp,
-    KeycloakOperationError, get_user_by_email,
-    store_temp_data, get_temp_data, delete_temp_data,
-    rate_limiter
+    get_user_by_phone_or_username,
+    get_user_by_email_or_username,
+    add_phone_attributes_to_user,
+    create_user_with_phone,
+    verify_email,
+    generate_otp,
+    store_otp,
+    verify_otp,
+    store_temp_data,
+    get_temp_data,
+    delete_temp_data,
+    rate_limiter,
+    KeycloakOperationError
 )
 from services.email_service import send_otp_email
 from services.auth import get_api_key

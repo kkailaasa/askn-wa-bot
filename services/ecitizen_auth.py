@@ -288,8 +288,7 @@ rate_limiter = RateLimiter()
 __all__ = [
     'KeycloakOperationError',
     'create_keycloak_admin',
-    'get_user_by_email',
-    'get_user_by_phone',
+    'get_user_by_email_or_username',
     'get_user_by_phone_or_username',
     'create_user_with_phone',
     'add_phone_attributes_to_user',
