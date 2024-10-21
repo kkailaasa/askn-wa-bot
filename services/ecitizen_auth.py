@@ -93,7 +93,7 @@ def get_user_by_identifier(identifier: str, identifier_type: str) -> Optional[Di
             set_in_cache(cache_key, user_info)
             logger.info(f"User data for {identifier_type} {identifier} retrieved from Keycloak and cached")
             return user_info
-        
+
         logger.info(f"User with {identifier_type} {identifier} not found")
         return None
     except KeycloakError as e:
@@ -111,23 +111,39 @@ def get_user_by_phone_or_username(identifier: str) -> Optional[Dict[str, Any]]:
         if not users:
             # Check phoneNumber attribute
             users = keycloak_admin.get_users({"q": f"phoneNumber:{identifier}"})
-        
+
         if users:
-            logger.debug(f"Raw user data from Keycloak: {users[0]}")
-            user_info = get_user_info(users[0])
-            logger.debug(f"Processed user info: {user_info}")
-            return user_info
+            user = users[0]
+            return {
+                "id": user.get("id"),
+                "username": user.get("username"),
+                "email": user.get("email"),
+                "enabled": user.get("enabled", False),
+                "attributes": user.get("attributes", {})
+            }
         return None
     except KeycloakError as e:
         logger.error(f"Keycloak error while getting user: {str(e)}")
         raise KeycloakOperationError("Failed to get user")
 
-def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+def get_user_by_email_or_username(email: str) -> Optional[Dict[str, Any]]:
     try:
         keycloak_admin = create_keycloak_admin()
+        # Check email
         users = keycloak_admin.get_users({"email": email})
+        if not users:
+            # Check username
+            users = keycloak_admin.get_users({"username": email})
+
         if users:
-            return get_user_info(users[0])
+            user = users[0]
+            return {
+                "id": user.get("id"),
+                "username": user.get("username"),
+                "email": user.get("email"),
+                "enabled": user.get("enabled", False),
+                "attributes": user.get("attributes", {})
+            }
         return None
     except KeycloakError as e:
         logger.error(f"Keycloak error while getting user by email: {str(e)}")
@@ -137,11 +153,23 @@ def add_phone_attributes_to_user(user_id: str, phone_number: str, phone_type: st
     try:
         keycloak_admin = create_keycloak_admin()
         user_info = keycloak_admin.get_user(user_id)
+        if not user_info:
+            raise KeycloakOperationError(f"User with ID {user_id} not found")
+
         attributes = user_info.get('attributes', {})
-        attributes['phoneNumber'] = [phone_number]
+
+        # If phoneNumber doesn't exist, create it as a list
+        if 'phoneNumber' not in attributes:
+            attributes['phoneNumber'] = []
+
+        # Add the new phone number if it's not already in the list
+        if phone_number not in attributes['phoneNumber']:
+            attributes['phoneNumber'].append(phone_number)
+
         attributes['phoneType'] = [phone_type]
         attributes['phoneVerified'] = [phone_verified]
         attributes['verificationRoute'] = [verification_route]
+
         keycloak_admin.update_user(user_id=user_id, payload={"attributes": attributes})
         logger.info(f"Phone attributes added for user ID: {user_id}")
         return {"message": "Phone attributes added successfully."}
@@ -230,14 +258,14 @@ class RateLimiter:
     def is_rate_limited(self, key: str, limit: int, period: int) -> bool:
         current = int(time.time())
         key = f"rate_limit:{key}"
-        
+
         with self.redis_client.pipeline() as pipe:
             pipe.zremrangebyscore(key, 0, current - period)
             pipe.zcard(key)
             pipe.zadd(key, {current: current})
             pipe.expire(key, period)
             _, count, _, _ = pipe.execute()
-        
+
         return count > limit
 
 def store_temp_data(key: str, data: Dict[str, Any], expiry: int = 3600):

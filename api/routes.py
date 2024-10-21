@@ -135,9 +135,9 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
         if not temp_data:
             raise HTTPException(status_code=400, detail="Invalid request sequence")
 
-        user = get_user_by_email(email_request.email)
+        user = get_user_by_email_or_username(email_request.email)
         if user:
-            # Add phone attributes to existing user
+            # User exists, add the new phone number to their account
             result = add_phone_attributes_to_user(
                 user['id'],
                 email_request.phone_number,
@@ -148,6 +148,7 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
             delete_temp_data(email_request.phone_number)
             return {"message": "Phone attributes added to existing account", "user": user}
         else:
+            # No user found with this email, store the email with the phone data
             store_temp_data(email_request.phone_number, {
                 **temp_data,
                 "email": email_request.email,
