@@ -1,4 +1,4 @@
-# eCitizen Registration System
+# eCitizen Registration Integration with NGPT System
 
 ## Overview
 This project implements an eCitizen registration system for WhatsApp users, modified from the main repo to be used by the NGPT Backend Service. It provides a set of API endpoints for user registration, email verification, and message handling.
