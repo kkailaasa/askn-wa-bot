@@ -60,11 +60,28 @@ This document outlines the registration flow for the eCitizen system, detailing 
   - Email verified: Complete the registration process
   - Invalid OTP: Prompt user to try again
 
+### 6. Handle Incoming Messages (/message)
+
+**Input**: Twilio webhook data (message body, sender's phone number)
+Process**:
+
+Validate the incoming Twilio request
+Extract message content and sender information
+Process the message using AN Backend Service
+Generate appropriate response
+Send response back to the user via Twilio
+
+
+Outcome:
+
+Processed message: User receives a relevant response
+Failed processing: Log error and potentially send a default response
+
 ## Security Measures
 
 - **Rate Limiting**: Implemented on sensitive endpoints to prevent abuse
 - **API Key**: All endpoints require a valid API key for access
-- **Temporary Data Storage**: User data is temporarily stored between steps for seamless flow
+- **Temporary Data Storage**: User data is temporarily stored in redis between steps for seamless flow
 - **OTP Expiration**: Email verification OTPs are set to expire after a short period
 
 ## Error Handling
@@ -77,9 +94,7 @@ This document outlines the registration flow for the eCitizen system, detailing 
 
 - The system is designed to handle WhatsApp-based registrations, as indicated by the `phoneType` and `verificationRoute` attributes
 - The flow allows for adding phone numbers to existing accounts, facilitating user profile updates
-- Email verification is a crucial step to ensure the validity of user contact information
-
-This registration flow provides a robust and secure method for user onboarding, accommodating various scenarios and ensuring data integrity throughout the process.
+- Email verification is also implemented to ensure the validity of user contact information
 
 ## Codebase
 
@@ -87,4 +102,3 @@ This registration flow provides a robust and secure method for user onboarding, 
 - All Ecitizen Auth Functions is handled by services.ecitizen_auth.py
 - Email Verification is handled by services.email_service.py
 - Environmental Configurations are handled by core.config.py
- 

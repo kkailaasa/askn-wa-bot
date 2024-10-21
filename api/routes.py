@@ -14,6 +14,8 @@ from services.auth import get_api_key
 from utils.twilio_validator import validate_twilio_request
 from pydantic import BaseModel, EmailStr, Field
 from tasks.celery_tasks import process_question
+from services import ChatService, MessagingService
+from utils.redis_helpers import is_rate_limited
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,46 @@ class CreateUserRequest(BaseModel):
 class VerifyEmailRequest(BaseModel):
     email: EmailStr
     otp: str
+
+@router.post("/message")
+async def handle_message(
+    request: Request,
+    Body: str = Form(...),
+    From: str = Form(...),
+):
+    # Validate the request is from Twilio
+    #await validate_twilio_request(request)
+
+    # Check rate limiting
+    if is_rate_limited(From):
+        logger.warning(f"Rate limit exceeded for {From}")
+        return JSONResponse(content={"message": "Rate limit exceeded. Please try again later."}, status_code=429)
+
+    try:
+        # Process the message asynchronously
+        process_question.delay(Body, From)
+        
+        # Send an immediate response to acknowledge receipt
+        return JSONResponse(content={"message": "Message received and being processed."}, status_code=202)
+    except Exception as e:
+        logger.error(f"Error processing message: {str(e)}")
+        return JSONResponse(content={"message": "An error occurred while processing your message."}, status_code=500)
+
+async def process_and_respond(body: str, from_number: str):
+    chat_service = ChatService()
+    messaging_service = MessagingService()
+
+    try:
+        conversation_id = chat_service.get_conversation_id(from_number)
+        
+        response = chat_service.create_chat_message(from_number, body, conversation_id)
+        
+        messaging_service.send_message(from_number, response)
+    except Exception as e:
+        logger.error(f"Error in process_and_respond: {str(e)}")
+        # Send an error message to the user
+        messaging_service.send_message(from_number, "Sorry, an error occurred while processing your message. Please try again later.")
+
 
 @router.post("/check_phone", response_model=dict)
 async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_api_key)):
