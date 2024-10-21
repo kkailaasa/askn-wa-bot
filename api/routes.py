@@ -121,6 +121,17 @@ async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_ap
     try:
         user = get_user_by_phone_or_username(phone_request.phone_number)
         if user:
+            # If user exists but has no email, store temp data and proceed to check_email
+            if not user.get('email'):
+                store_temp_data(phone_request.phone_number, {
+                    "phone_number": phone_request.phone_number,
+                    "user_id": user.get('id')  # Store the user ID for later use
+                })
+                return {
+                    "message": "User found but email not set",
+                    "user": user,
+                    "next_step": "check_email"
+                }
             return {"message": "User found", "user": user}
         else:
             store_temp_data(phone_request.phone_number, {"phone_number": phone_request.phone_number})
@@ -143,18 +154,34 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
         if not temp_data:
             raise HTTPException(status_code=400, detail="Invalid request sequence")
 
-        user = get_user_by_email_or_username(email_request.email)
-        if user:
-            # User exists, add the new phone number to their account
+        # If we have a user_id in temp_data, it means we're adding email to existing user
+        if "user_id" in temp_data:
+            try:
+                keycloak_admin = create_keycloak_admin()
+                keycloak_admin.update_user(
+                    user_id=temp_data["user_id"],
+                    payload={"email": email_request.email}
+                )
+                user = get_user_by_phone_or_username(email_request.phone_number)
+                delete_temp_data(email_request.phone_number)
+                return {"message": "Email added to existing account", "user": user}
+            except KeycloakError as e:
+                logger.error(f"Failed to update user email: {str(e)}")
+                raise HTTPException(status_code=500, detail="Failed to update user email")
+
+        # Check if email exists in another account
+        existing_user = get_user_by_email_or_username(email_request.email)
+        if existing_user:
+            # Add the new phone number to their account
             result = add_phone_attributes_to_user(
-                user['id'],
+                existing_user['id'],
                 email_request.phone_number,
                 phone_type="whatsapp",
                 phone_verified="yes",
                 verification_route="ngpt_wa"
             )
             delete_temp_data(email_request.phone_number)
-            return {"message": "Phone attributes added to existing account", "user": user}
+            return {"message": "Phone attributes added to existing account", "user": existing_user}
         else:
             # No user found with this email, store the email with the phone data
             store_temp_data(email_request.phone_number, {
