@@ -2,6 +2,7 @@ from celery import Celery
 from core.config import settings
 import logging
 from services import ChatService, MessagingService
+from utils.redis_pool import get_redis_client
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -28,13 +29,13 @@ def process_question(Body: str, From: str):
     try:
         # Get or create a conversation
         conversation_id = chat_service.get_conversation_id(From)
-        
+
         # Generate a response using Dify
         response = chat_service.create_chat_message(From, Body, conversation_id)
-        
+
         # Send the response back to the user via Twilio
         messaging_service.send_message(From, response)
-        
+
         logger.info(f"Successfully processed and responded to message from {From}")
     except Exception as e:
         logger.error(f"Error processing message from {From}: {str(e)}")
@@ -46,7 +47,7 @@ def process_question(Body: str, From: str):
 def cleanup_redis_data():
     logger.info("Starting Redis data cleanup task")
     redis_client = get_redis_client()
-    
+
     try:
         # Clean up expired OTPs
         otp_pattern = "otp:*"
@@ -55,22 +56,22 @@ def cleanup_redis_data():
         if expired_otps:
             redis_client.delete(*expired_otps)
             logger.info(f"Cleaned up {len(expired_otps)} expired OTPs")
-        
+
         # Clean up temporary data
         temp_data_pattern = "temp_data:*"
         temp_data_keys = redis_client.keys(temp_data_pattern)
         current_time = int(time.time())
         expired_temp_data = []
-        
+
         for key in temp_data_keys:
             # Cleaning up temp data after 1 hour (3600 seconds)
             if current_time - int(redis_client.get(key).decode('utf-8').split(':')[0]) > 3600:
                 expired_temp_data.append(key)
-        
+
         if expired_temp_data:
             redis_client.delete(*expired_temp_data)
             logger.info(f"Cleaned up {len(expired_temp_data)} expired temporary data entries")
-        
+
         # Clean up rate limiting data
         rate_limit_pattern = "rate_limit:*"
         rate_limit_keys = redis_client.keys(rate_limit_pattern)
@@ -78,7 +79,7 @@ def cleanup_redis_data():
         if expired_rate_limits:
             redis_client.delete(*expired_rate_limits)
             logger.info(f"Cleaned up {len(expired_rate_limits)} expired rate limit entries")
-        
+
         logger.info("Redis data cleanup completed successfully")
     except Exception as e:
         logger.error(f"Error during Redis cleanup: {str(e)}")
