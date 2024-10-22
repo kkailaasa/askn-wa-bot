@@ -34,21 +34,18 @@ router = APIRouter()
 class PhoneRequest(BaseModel):
     phone_number: str
 
-class EmailRequest(BaseModel):
-    phone_number: str
-    email: EmailStr
-
-class CreateUserRequest(BaseModel):
-    phone_number: str
-    email: EmailStr
-    first_name: str
-    last_name: str
-    gender: str
-    country: str
-
-class VerifyEmailRequest(BaseModel):
-    email: EmailStr
-    otp: str
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    email: Optional[str]
+    enabled: bool
+    first_name: Optional[str]
+    last_name: Optional[str]
+    phone_number: Optional[str]
+    phone_type: Optional[str]
+    phone_verified: Optional[str]
+    gender: Optional[str]
+    country: Optional[str]
 
 @router.post("/message")
 async def handle_message(
@@ -164,18 +161,36 @@ async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_ap
     try:
         user = get_user_by_phone_or_username(phone_request.phone_number)
         if user:
+            # Format user response with enhanced information
+            user_response = {
+                "id": user.get('id'),
+                "username": user.get('username'),
+                "email": user.get('email'),
+                "enabled": user.get('enabled', False),
+                "first_name": user.get('firstName', ''),
+                "last_name": user.get('lastName', ''),
+                "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
+                "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
+                "phone_verified": user.get('attributes', {}).get('phoneVerified', [None])[0],
+                "gender": user.get('attributes', {}).get('gender', [None])[0],
+                "country": user.get('attributes', {}).get('country', [None])[0]
+            }
+
             # If user exists but has no email, store temp data and proceed to check_email
             if not user.get('email'):
                 store_temp_data(phone_request.phone_number, {
                     "phone_number": phone_request.phone_number,
-                    "user_id": user.get('id')  # Store the user ID for later use
+                    "user_id": user.get('id')
                 })
                 return {
                     "message": "User found but email not set",
-                    "user": user,
+                    "user": user_response,
                     "next_step": "check_email"
                 }
-            return {"message": "User found", "user": user}
+            return {
+                "message": "User found",
+                "user": user_response
+            }
         else:
             store_temp_data(phone_request.phone_number, {"phone_number": phone_request.phone_number})
             return {"message": "User not found", "next_step": "check_email"}
