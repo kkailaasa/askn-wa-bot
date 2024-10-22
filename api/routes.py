@@ -31,9 +31,27 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Request Models
 class PhoneRequest(BaseModel):
     phone_number: str
 
+class EmailRequest(BaseModel):
+    phone_number: str
+    email: EmailStr
+
+class CreateUserRequest(BaseModel):
+    phone_number: str
+    email: EmailStr
+    first_name: str
+    last_name: str
+    gender: str
+    country: str
+
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
+# Response Models
 class UserResponse(BaseModel):
     id: str
     username: str
@@ -46,108 +64,6 @@ class UserResponse(BaseModel):
     phone_verified: Optional[str]
     gender: Optional[str]
     country: Optional[str]
-
-@router.post("/message")
-async def handle_message(
-    request: Request,
-    Body: str = Form(...),
-    From: str = Form(...),
-):
-    logger.debug(f"Received message - From: {From}, Body: {Body}")
-    logger.debug(f"Request headers: {dict(request.headers)}")
-    logger.debug(f"Request form data: {await request.form()}")
-
-    # Clean up the phone number format
-    try:
-        # Initialize messaging service first to validate the configuration
-        messaging_service = MessagingService()
-
-        # Format the phone number consistently
-        phone_number = From.replace("whatsapp:", "").strip()
-        if not phone_number.startswith('+'):
-            phone_number = f"+{phone_number}"
-
-        logger.debug(f"Cleaned phone number: {phone_number}")
-
-        if not messaging_service.validate_phone_number(phone_number):
-            logger.error(f"Invalid phone number format: {phone_number}")
-            return JSONResponse(
-                content={"message": "Invalid phone number format"},
-                status_code=400
-            )
-
-        # Check rate limiting
-        if is_rate_limited(phone_number):
-            remaining, reset_time = get_remaining_limit(phone_number)
-            logger.warning(f"Rate limit exceeded for {phone_number}. Resets in {reset_time} seconds")
-            return JSONResponse(
-                content={
-                    "message": "Rate limit exceeded. Please try again later.",
-                    "reset_in_seconds": reset_time
-                },
-                status_code=429
-            )
-
-        try:
-            # Initialize chat service
-            chat_service = ChatService()
-
-            # Get conversation ID
-            logger.debug(f"Getting conversation ID for phone number: {phone_number}")
-            conversation_id = chat_service.get_conversation_id(phone_number)
-            logger.debug(f"Got conversation ID: {conversation_id}")
-
-            # Get response from chat service
-            logger.debug(f"Creating chat message with Body: {Body}")
-            response = chat_service.create_chat_message(
-                user=phone_number,
-                query=Body,
-                conversation_id=conversation_id
-            )
-            logger.debug(f"Generated response: {response}")
-
-            # Send response back to user
-            logger.debug(f"Sending response back to: {phone_number}")
-            message_sid = messaging_service.send_message(phone_number, response)
-            logger.debug(f"Message sent successfully, SID: {message_sid}")
-
-            return JSONResponse(
-                content={
-                    "message": "Message processed successfully.",
-                    "message_sid": message_sid
-                },
-                status_code=200
-            )
-
-        except ValueError as ve:
-            logger.error(f"Validation error: {str(ve)}")
-            return JSONResponse(
-                content={"message": str(ve)},
-                status_code=400
-            )
-        except Exception as e:
-            logger.error(f"Error processing message: {str(e)}", exc_info=True)
-
-            # Try to send error message to user
-            try:
-                messaging_service.send_message(
-                    phone_number,
-                    "Sorry, an error occurred while processing your message. Please try again later."
-                )
-            except Exception as send_error:
-                logger.error(f"Failed to send error message: {str(send_error)}", exc_info=True)
-
-            return JSONResponse(
-                content={"message": "An unexpected error occurred while processing your message."},
-                status_code=500
-            )
-
-    except Exception as e:
-        logger.error(f"Error in message handler: {str(e)}", exc_info=True)
-        return JSONResponse(
-            content={"message": "An error occurred while processing your message."},
-            status_code=500
-        )
 
 @router.post("/check_phone", response_model=dict)
 async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_api_key)):
@@ -216,6 +132,22 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
         phone_user = get_user_by_phone_or_username(email_request.phone_number)
         email_user = get_user_by_email_or_username(email_request.email)
 
+        # Format user response function
+        def format_user_response(user):
+            return {
+                "id": user.get('id'),
+                "username": user.get('username'),
+                "email": user.get('email'),
+                "enabled": user.get('enabled', False),
+                "first_name": user.get('firstName', ''),
+                "last_name": user.get('lastName', ''),
+                "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
+                "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
+                "phone_verified": user.get('attributes', {}).get('phoneVerified', [None])[0],
+                "gender": user.get('attributes', {}).get('gender', [None])[0],
+                "country": user.get('attributes', {}).get('country', [None])[0]
+            }
+
         if phone_user and email_user:
             # Both users exist - we need to merge them
             try:
@@ -258,7 +190,7 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
 
                 return {
                     "message": "Accounts merged successfully",
-                    "user": updated_user
+                    "user": format_user_response(updated_user)
                 }
 
             except KeycloakError as e:
@@ -278,7 +210,10 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
                 )
                 updated_user = get_user_by_phone_or_username(email_request.phone_number)
                 delete_temp_data(email_request.phone_number)
-                return {"message": "Email added to existing account", "user": updated_user}
+                return {
+                    "message": "Email added to existing account",
+                    "user": format_user_response(updated_user)
+                }
 
             except KeycloakError as e:
                 logger.error(f"Failed to update user email: {str(e)}")
@@ -294,7 +229,10 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
                 verification_route="ngpt_wa"
             )
             delete_temp_data(email_request.phone_number)
-            return {"message": "Phone attributes added to existing account", "user": email_user}
+            return {
+                "message": "Phone attributes added to existing account",
+                "user": format_user_response(email_user)
+            }
 
         else:
             # Neither user exists, proceed to create new account
