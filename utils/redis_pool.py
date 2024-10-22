@@ -23,12 +23,22 @@ class RedisConnectionPool:
                 max_connections=settings.REDIS_MAX_CONNECTIONS,
                 socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
                 socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT,
-                health_check_interval=30
+                health_check_interval=30,
+                retry_on_timeout=True
             )
 
-    @property
-    def pool(self):
-        return self._pool
+    def get_client(self):
+        try:
+            client = redis.Redis(connection_pool=self._pool)
+            client.ping()  # Test connection
+            return client
+        except redis.ConnectionError as e:
+            logger.error(f"Failed to get Redis client: {str(e)}")
+            self.close()  # Close pool on error
+            raise
+        except Exception as e:
+            logger.error(f"Error getting Redis client: {str(e)}")
+            raise
 
     def close(self):
         if self._pool:
@@ -38,19 +48,11 @@ class RedisConnectionPool:
 
 redis_pool = RedisConnectionPool()
 
-def get_client(self):
-        try:
-            client = redis.Redis(connection_pool=self._pool)
-            client.ping()  # Test connection
-            return client
-        except redis.ConnectionError as e:
-            logger.error(f"Failed to get Redis client: {str(e)}")
-            self.close()  # Close pool on error
-            raise
-
 def get_redis_client():
-    try:
-        return redis_pool.get_client()
-    except Exception as e:
-        logger.error(f"Error getting Redis client: {str(e)}")
-        raise
+    return redis_pool.get_client()
+
+# utils/__init__.py
+from .redis_pool import get_redis_client, redis_pool
+from .twilio_validator import validate_twilio_request
+
+__all__ = ['get_redis_client', 'redis_pool', 'validate_twilio_request']
