@@ -1,4 +1,3 @@
-# core/config.py
 from pydantic_settings import BaseSettings
 from typing import List, Dict, Any
 import logging
@@ -27,7 +26,15 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "redis"
     REDIS_PORT: int = 6379
     REDIS_URL: str = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+
+    # Connection Pool Settings
     REDIS_MAX_CONNECTIONS: int = 10
+    DIFY_MAX_CONNECTIONS: int = 10
+    TWILIO_MAX_CONNECTIONS: int = 10
+
+    # Redis Pool Timeouts
+    REDIS_SOCKET_TIMEOUT: int = 5
+    REDIS_SOCKET_CONNECT_TIMEOUT: int = 2
 
     # Message Rate Limiting Configuration
     MESSAGE_RATE_LIMIT: int = 2
@@ -67,7 +74,7 @@ class Settings(BaseSettings):
     def _init_rate_limit_config(self) -> Dict[str, Dict[str, int]]:
         """Initialize rate limit configuration from environment variables"""
         import os
-        
+
         defaults = {
             "create_user": {"limit": 5, "period": 3600},
             "add_email": {"limit": 3, "period": 3600},
@@ -78,15 +85,15 @@ class Settings(BaseSettings):
         for key in defaults:
             limit_env = f"RATE_LIMIT__{key.upper()}__LIMIT"
             period_env = f"RATE_LIMIT__{key.upper()}__PERIOD"
-            
+
             limit = os.getenv(limit_env, str(defaults[key]["limit"]))
             period = os.getenv(period_env, str(defaults[key]["period"]))
-            
+
             config[key] = {
                 "limit": int(limit),
                 "period": int(period)
             }
-        
+
         return config
 
     @staticmethod

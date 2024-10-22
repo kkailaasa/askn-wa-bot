@@ -1,11 +1,12 @@
-# main.py
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from api.routes import router
 from core.config import Settings
 from services.ecitizen_auth import KeycloakOperationError
+from utils.http_client import http_pool
+from utils.redis_pool import redis_pool
+import atexit
 import logging
 
 # Set up logging
@@ -14,6 +15,13 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 settings = Settings()
+
+@atexit.register
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("Shutting down application")
+    http_pool.close_all()
+    redis_pool.close()
 
 # CORS middleware
 app.add_middleware(
