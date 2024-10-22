@@ -1,9 +1,12 @@
+# services/dify_chat.py
 from typing import Optional
 from dify_client import ChatClient
 from core.config import settings
 import logging
 from urllib.parse import urlparse
 from utils.http_client import http_pool
+
+logger = logging.getLogger(__name__)
 
 class ChatService:
     def __init__(self):

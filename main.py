@@ -1,3 +1,4 @@
+# main.py
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -5,7 +6,7 @@ from api.routes import router
 from core.config import Settings
 from services.ecitizen_auth import KeycloakOperationError
 from utils.http_client import http_pool
-from utils.redis_pool import redis_pool
+from utils.redis_pool import redis_pool, get_redis_client
 import atexit
 import logging
 
@@ -49,6 +50,31 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"message": "An unexpected error occurred."},
     )
+
+@app.get("/health")
+async def health_check():
+    health_status = {
+        "status": "healthy",
+        "components": {
+            "redis": check_redis_health(),
+            "http_pools": check_http_pools_health()
+        }
+    }
+    return health_status
+
+def check_redis_health():
+    try:
+        redis_client = get_redis_client()
+        redis_client.ping()
+        return {"status": "healthy"}
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}
+
+def check_http_pools_health():
+    return {
+        host: http_pool.get_pool_stats(host)
+        for host in http_pool._pools.keys()
+    }
 
 if __name__ == "__main__":
     import uvicorn
