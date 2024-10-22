@@ -15,8 +15,10 @@ from services.ecitizen_auth import (
     get_temp_data,
     delete_temp_data,
     rate_limiter,
-    KeycloakOperationError
+    KeycloakOperationError,
+    create_keycloak_admin
 )
+from keycloak.exceptions import KeycloakError
 from services.email_service import send_otp_email
 from services.auth import get_api_key
 from utils.twilio_validator import validate_twilio_request
@@ -154,36 +156,92 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
         if not temp_data:
             raise HTTPException(status_code=400, detail="Invalid request sequence")
 
-        # If we have a user_id in temp_data, it means we're adding email to existing user
-        if "user_id" in temp_data:
+        # Get both users
+        phone_user = get_user_by_phone_or_username(email_request.phone_number)
+        email_user = get_user_by_email_or_username(email_request.email)
+
+        if phone_user and email_user:
+            # Both users exist - we need to merge them
+            try:
+                keycloak_admin = create_keycloak_admin()
+
+                # First, update the phone user with the email user's data
+                email_attributes = email_user.get('attributes', {})
+                phone_attributes = phone_user.get('attributes', {})
+
+                # Merge attributes
+                merged_attributes = {
+                    **email_attributes,
+                    'phoneNumber': [email_request.phone_number],
+                    'phoneType': ['whatsapp'],
+                    'phoneVerified': ['yes'],
+                    'verificationRoute': ['ngpt_wa']
+                }
+
+                # Update the email user's account with the phone number
+                keycloak_admin.update_user(
+                    user_id=email_user['id'],
+                    payload={
+                        "attributes": merged_attributes,
+                        "email": email_request.email,
+                        "emailVerified": True
+                    }
+                )
+
+                # Disable the phone-only account as we've merged it
+                keycloak_admin.update_user(
+                    user_id=phone_user['id'],
+                    payload={"enabled": False}
+                )
+
+                logger.info(f"Successfully merged accounts for phone {email_request.phone_number} and email {email_request.email}")
+
+                # Get the updated user data
+                updated_user = get_user_by_email_or_username(email_request.email)
+                delete_temp_data(email_request.phone_number)
+
+                return {
+                    "message": "Accounts merged successfully",
+                    "user": updated_user
+                }
+
+            except KeycloakError as e:
+                logger.error(f"Failed to merge accounts: {str(e)}")
+                raise HTTPException(status_code=500, detail="Failed to merge accounts")
+
+        elif phone_user:
+            # Only phone user exists, add email to their account
             try:
                 keycloak_admin = create_keycloak_admin()
                 keycloak_admin.update_user(
-                    user_id=temp_data["user_id"],
-                    payload={"email": email_request.email}
+                    user_id=phone_user['id'],
+                    payload={
+                        "email": email_request.email,
+                        "emailVerified": False
+                    }
                 )
-                user = get_user_by_phone_or_username(email_request.phone_number)
+                updated_user = get_user_by_phone_or_username(email_request.phone_number)
                 delete_temp_data(email_request.phone_number)
-                return {"message": "Email added to existing account", "user": user}
+                return {"message": "Email added to existing account", "user": updated_user}
+
             except KeycloakError as e:
                 logger.error(f"Failed to update user email: {str(e)}")
                 raise HTTPException(status_code=500, detail="Failed to update user email")
 
-        # Check if email exists in another account
-        existing_user = get_user_by_email_or_username(email_request.email)
-        if existing_user:
-            # Add the new phone number to their account
+        elif email_user:
+            # Only email user exists, add phone to their account
             result = add_phone_attributes_to_user(
-                existing_user['id'],
+                email_user['id'],
                 email_request.phone_number,
                 phone_type="whatsapp",
                 phone_verified="yes",
                 verification_route="ngpt_wa"
             )
             delete_temp_data(email_request.phone_number)
-            return {"message": "Phone attributes added to existing account", "user": existing_user}
+            return {"message": "Phone attributes added to existing account", "user": email_user}
+
         else:
-            # No user found with this email, store the email with the phone data
+            # Neither user exists, proceed to create new account
             store_temp_data(email_request.phone_number, {
                 **temp_data,
                 "email": email_request.email,
@@ -192,6 +250,7 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
                 "verificationRoute": "ngpt_wa"
             })
             return {"message": "User not found", "next_step": "create_account"}
+
     except KeycloakOperationError as e:
         logger.error(f"Keycloak operation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
