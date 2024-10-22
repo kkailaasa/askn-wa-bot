@@ -10,9 +10,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize the Celery app
-app = Celery('tasks', broker=settings.REDIS_URL, backend=settings.REDIS_URL)
+celery_app = Celery('tasks', 
+                   broker=settings.REDIS_URL,
+                   backend=settings.REDIS_URL)
 
-app.conf.update(
+celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_serializer='json',
     accept_content=['json'],
@@ -21,7 +23,7 @@ app.conf.update(
     enable_utc=True,
 )
 
-@app.task
+@celery_app.task
 def process_question(Body: str, From: str):
     logger.info(f"Processing question: {Body} from {From}")
     chat_service = ChatService()
@@ -44,7 +46,7 @@ def process_question(Body: str, From: str):
         error_message = "Sorry, an error occurred while processing your message. Please try again later."
         messaging_service.send_message(From, error_message)
 
-@app.task
+@celery_app.task
 def cleanup_redis_data():
     logger.info("Starting Redis data cleanup task")
     redis_client = get_redis_client()
@@ -65,7 +67,6 @@ def cleanup_redis_data():
         expired_temp_data = []
 
         for key in temp_data_keys:
-            # Cleaning up temp data after 1 hour (3600 seconds)
             if current_time - int(redis_client.get(key).decode('utf-8').split(':')[0]) > 3600:
                 expired_temp_data.append(key)
 
@@ -73,24 +74,13 @@ def cleanup_redis_data():
             redis_client.delete(*expired_temp_data)
             logger.info(f"Cleaned up {len(expired_temp_data)} expired temporary data entries")
 
-        # Clean up rate limiting data
-        rate_limit_pattern = "rate_limit:*"
-        rate_limit_keys = redis_client.keys(rate_limit_pattern)
-        expired_rate_limits = [key for key in rate_limit_keys if redis_client.ttl(key) <= 0]
-        if expired_rate_limits:
-            redis_client.delete(*expired_rate_limits)
-            logger.info(f"Cleaned up {len(expired_rate_limits)} expired rate limit entries")
-
         logger.info("Redis data cleanup completed successfully")
     except Exception as e:
         logger.error(f"Error during Redis cleanup: {str(e)}")
 
-app.conf.beat_schedule = {
+celery_app.conf.beat_schedule = {
     'cleanup-redis-data': {
         'task': 'tasks.celery_tasks.cleanup_redis_data',
         'schedule': 3600.0,  # Run every hour
     },
 }
-
-if __name__ == '__main__':
-    app.start()

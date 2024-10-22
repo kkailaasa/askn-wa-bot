@@ -1,3 +1,8 @@
+from typing import Optional
+from dify_client import ChatClient
+from core.config import settings
+import logging
+
 class ChatService:
     def __init__(self):
         self.chat_client = ChatClient(settings.DIFY_KEY)
