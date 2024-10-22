@@ -67,7 +67,7 @@ class CustomTwilioHttpClient(TwilioHttpClient):
 
             logger.debug(f"Twilio response status: {response.status}")
             adapted_response = TwilioResponseAdapter(response)
-            
+
             if not adapted_response.ok:
                 logger.error(f"Twilio request failed with status {adapted_response.status_code}: {adapted_response.text}")
 
@@ -81,16 +81,15 @@ class MessagingService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         try:
-            http_client = CustomTwilioHttpClient()
+            # Don't use the custom HTTP client for now to debug the issue
             self.client = Client(
                 settings.TWILIO_ACCOUNT_SID,
-                settings.TWILIO_AUTH_TOKEN,
-                http_client=http_client
+                settings.TWILIO_AUTH_TOKEN
             )
             self.twilio_number = settings.TWILIO_NUMBER.strip()
             if not self.twilio_number:
                 raise ValueError("TWILIO_NUMBER not configured")
-            
+
             self.logger.debug(f"MessagingService initialized with number: {self.twilio_number}")
         except Exception as e:
             self.logger.error(f"Error initializing MessagingService: {str(e)}")
@@ -99,18 +98,18 @@ class MessagingService:
     def format_phone_number(self, phone_number: str, add_whatsapp: bool = True) -> str:
         """Format phone number for Twilio WhatsApp messaging."""
         self.logger.debug(f"Formatting phone number: {phone_number} (add_whatsapp={add_whatsapp})")
-        
+
         # Remove any existing prefixes and whitespace
         phone_number = phone_number.replace("whatsapp:", "").strip()
-        
+
         # Ensure it starts with +
         if not phone_number.startswith('+'):
             phone_number = f"+{phone_number}"
-            
+
         # Add WhatsApp prefix if needed
         if add_whatsapp:
             phone_number = f"whatsapp:{phone_number}"
-        
+
         self.logger.debug(f"Formatted phone number result: {phone_number}")
         return phone_number
 
@@ -128,7 +127,7 @@ class MessagingService:
     def send_message(self, to_number: str, body_text: str):
         try:
             self.logger.debug(f"Sending message - Raw to_number: {to_number}")
-            
+
             if not to_number or not body_text:
                 raise ValueError("Both 'to_number' and 'body_text' are required")
 
@@ -145,15 +144,13 @@ class MessagingService:
             if not self.validate_phone_number(from_formatted):
                 raise ValueError(f"Invalid 'from' phone number format: {from_formatted}")
 
-            # Create the message
-            message_data = {
-                'to': to_formatted,
-                'from_': from_formatted,
-                'body': body_text
-            }
-            self.logger.debug(f"Creating message with data: {message_data}")
-
-            message = self.client.messages.create(**message_data)
+            # Create the message - Note the parameter names!
+            self.logger.debug("Attempting to send message with Twilio client")
+            message = self.client.messages.create(
+                to=to_formatted,    # Use 'to', not 'to_'
+                from_=from_formatted,  # Note the underscore in 'from_'
+                body=body_text
+            )
 
             self.logger.info(f"Message sent successfully - SID: {message.sid}")
             self.logger.debug(f"Complete message object: {message}")
