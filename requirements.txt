@@ -12,3 +12,4 @@ pydantic-settings
 pydantic[email]
 envelope
 sendgrid
+requests

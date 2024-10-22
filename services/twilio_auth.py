@@ -4,8 +4,31 @@ from core.config import settings
 import logging
 from urllib.parse import urlparse
 from utils.http_client import http_pool
+from requests.models import Response
+import json
 
 logger = logging.getLogger(__name__)
+
+class TwilioResponseAdapter:
+    """Adapter to make urllib3 HTTPResponse look like requests Response"""
+    def __init__(self, urllib3_response):
+        self._response = urllib3_response
+        self.status_code = urllib3_response.status
+        self.content = urllib3_response.data
+        self._cached_json = None
+
+    @property
+    def text(self):
+        return self.content.decode('utf-8') if self.content else ''
+
+    def json(self):
+        if self._cached_json is None:
+            self._cached_json = json.loads(self.text)
+        return self._cached_json
+
+    @property
+    def ok(self):
+        return 200 <= self.status_code < 300
 
 class CustomTwilioHttpClient(TwilioHttpClient):
     def __init__(self):
@@ -16,12 +39,21 @@ class CustomTwilioHttpClient(TwilioHttpClient):
         )
 
     def request(self, method, url, params=None, data=None, headers=None, auth=None, timeout=None,
-                allow_redirects=True):  # Added allow_redirects parameter
+                allow_redirects=True):
         """
         Make an HTTP request with parameters provided.
         """
         try:
             logger.debug(f"Making Twilio request: {method} {url}")
+
+            # Prepare auth header
+            if auth:
+                auth_string = f"{auth[0]}:{auth[1]}"
+                import base64
+                auth_header = base64.b64encode(auth_string.encode('utf-8')).decode('utf-8')
+                if headers is None:
+                    headers = {}
+                headers['Authorization'] = f'Basic {auth_header}'
 
             # Use the connection pool to make the request
             response = self.pool.request(
@@ -30,13 +62,20 @@ class CustomTwilioHttpClient(TwilioHttpClient):
                 fields=data,
                 headers=headers,
                 timeout=timeout,
-                retries=False if not allow_redirects else None,  # Handle redirects parameter
+                retries=False if not allow_redirects else None,
             )
 
             # Log response status
             logger.debug(f"Twilio response status: {response.status}")
 
-            return response
+            # Wrap the response in our adapter
+            adapted_response = TwilioResponseAdapter(response)
+            
+            if not adapted_response.ok:
+                logger.error(f"Twilio request failed with status {adapted_response.status_code}: {adapted_response.text}")
+
+            return adapted_response
+
         except Exception as e:
             logger.error(f"Twilio request error: {str(e)}")
             raise
