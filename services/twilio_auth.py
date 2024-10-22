@@ -23,7 +23,10 @@ class TwilioResponseAdapter:
 
     def json(self):
         if self._cached_json is None:
-            self._cached_json = json.loads(self.text)
+            try:
+                self._cached_json = json.loads(self.text)
+            except json.JSONDecodeError:
+                self._cached_json = {}
         return self._cached_json
 
     @property
@@ -43,6 +46,7 @@ class CustomTwilioHttpClient(TwilioHttpClient):
         try:
             logger.debug(f"Making Twilio request: {method} {url}")
             logger.debug(f"Request data: {data}")
+            logger.debug(f"Request headers: {headers}")
 
             if auth:
                 auth_string = f"{auth[0]}:{auth[1]}"
@@ -86,13 +90,17 @@ class MessagingService:
             self.twilio_number = settings.TWILIO_NUMBER.strip()
             if not self.twilio_number:
                 raise ValueError("TWILIO_NUMBER not configured")
+            
+            self.logger.debug(f"MessagingService initialized with number: {self.twilio_number}")
         except Exception as e:
             self.logger.error(f"Error initializing MessagingService: {str(e)}")
             raise
 
     def format_phone_number(self, phone_number: str, add_whatsapp: bool = True) -> str:
         """Format phone number for Twilio WhatsApp messaging."""
-        # Remove any existing prefixes
+        self.logger.debug(f"Formatting phone number: {phone_number} (add_whatsapp={add_whatsapp})")
+        
+        # Remove any existing prefixes and whitespace
         phone_number = phone_number.replace("whatsapp:", "").strip()
         
         # Ensure it starts with +
@@ -102,41 +110,50 @@ class MessagingService:
         # Add WhatsApp prefix if needed
         if add_whatsapp:
             phone_number = f"whatsapp:{phone_number}"
-            
+        
+        self.logger.debug(f"Formatted phone number result: {phone_number}")
         return phone_number
 
     def validate_phone_number(self, phone_number: str) -> bool:
         """Basic validation for phone numbers."""
         cleaned = phone_number.replace("whatsapp:", "").replace("+", "").strip()
-        return (
+        valid = (
             cleaned.isdigit() and  # Only contains digits
             len(cleaned) >= 10 and  # At least 10 digits
             len(cleaned) <= 15      # No more than 15 digits
         )
+        self.logger.debug(f"Phone number validation - Original: {phone_number}, Cleaned: {cleaned}, Valid: {valid}")
+        return valid
 
     def send_message(self, to_number: str, body_text: str):
         try:
+            self.logger.debug(f"Sending message - Raw to_number: {to_number}")
+            
             if not to_number or not body_text:
                 raise ValueError("Both 'to_number' and 'body_text' are required")
 
-            # Format and validate the phone numbers
-            to_number = self.format_phone_number(to_number)
-            from_number = self.format_phone_number(self.twilio_number)
+            # Format the 'to' number with WhatsApp prefix
+            to_formatted = self.format_phone_number(to_number, add_whatsapp=True)
+            # Format the 'from' number with WhatsApp prefix
+            from_formatted = self.format_phone_number(self.twilio_number, add_whatsapp=True)
 
-            if not self.validate_phone_number(to_number):
-                raise ValueError(f"Invalid 'to' phone number format: {to_number}")
+            self.logger.debug(f"Formatted numbers - To: {to_formatted}, From: {from_formatted}")
 
-            if not self.validate_phone_number(from_number):
-                raise ValueError(f"Invalid 'from' phone number format: {from_number}")
+            if not self.validate_phone_number(to_formatted):
+                raise ValueError(f"Invalid 'to' phone number format: {to_formatted}")
 
-            self.logger.debug(f"Sending message - To: {to_number}, From: {from_number}, Body: {body_text}")
+            if not self.validate_phone_number(from_formatted):
+                raise ValueError(f"Invalid 'from' phone number format: {from_formatted}")
 
-            # Create and send the message
-            message = self.client.messages.create(
-                to=to_number,
-                from_=from_number,
-                body=body_text
-            )
+            # Create the message
+            message_data = {
+                'to': to_formatted,
+                'from_': from_formatted,
+                'body': body_text
+            }
+            self.logger.debug(f"Creating message with data: {message_data}")
+
+            message = self.client.messages.create(**message_data)
 
             self.logger.info(f"Message sent successfully - SID: {message.sid}")
             self.logger.debug(f"Complete message object: {message}")

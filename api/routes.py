@@ -57,15 +57,21 @@ async def handle_message(
     From: str = Form(...),
 ):
     logger.debug(f"Received message - From: {From}, Body: {Body}")
+    logger.debug(f"Request headers: {dict(request.headers)}")
+    logger.debug(f"Request form data: {await request.form()}")
 
     # Clean up the phone number format
     try:
         # Initialize messaging service first to validate the configuration
         messaging_service = MessagingService()
-        
+
         # Format the phone number consistently
-        phone_number = messaging_service.format_phone_number(From)
-        
+        phone_number = From.replace("whatsapp:", "").strip()
+        if not phone_number.startswith('+'):
+            phone_number = f"+{phone_number}"
+
+        logger.debug(f"Cleaned phone number: {phone_number}")
+
         if not messaging_service.validate_phone_number(phone_number):
             logger.error(f"Invalid phone number format: {phone_number}")
             return JSONResponse(
@@ -73,13 +79,7 @@ async def handle_message(
                 status_code=400
             )
 
-        logger.debug(f"Formatted phone number: {phone_number}")
-
-    # Validate the request is from Twilio
-    #await validate_twilio_request(request)
-    # Note: Uncomment the above line when ready to enforce Twilio validation
-
-    # Check rate limiting
+        # Check rate limiting
         if is_rate_limited(phone_number):
             remaining, reset_time = get_remaining_limit(phone_number)
             logger.warning(f"Rate limit exceeded for {phone_number}. Resets in {reset_time} seconds")
@@ -92,69 +92,44 @@ async def handle_message(
             )
 
         try:
-            # Initialize services
-            chat_service = None
-            try:
-                chat_service = ChatService()
-            except Exception as init_error:
-                logger.error(f"Error initializing chat service: {str(init_error)}", exc_info=True)
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to initialize chat service"
-                )
+            # Initialize chat service
+            chat_service = ChatService()
 
-            # Get or create conversation ID
-            try:
-                logger.debug("Getting conversation ID")
-                conversation_id = chat_service.get_conversation_id(phone_number)
-                logger.debug(f"Conversation ID: {conversation_id}")
-            except Exception as conv_error:
-                logger.error(f"Error getting conversation ID: {str(conv_error)}", exc_info=True)
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to get conversation"
-                )
+            # Get conversation ID
+            logger.debug(f"Getting conversation ID for phone number: {phone_number}")
+            conversation_id = chat_service.get_conversation_id(phone_number)
+            logger.debug(f"Got conversation ID: {conversation_id}")
 
             # Get response from chat service
-            try:
-                logger.debug("Creating chat message")
-                response = chat_service.create_chat_message(
-                    user=phone_number,
-                    query=Body,
-                    conversation_id=conversation_id
-                )
-                logger.debug(f"Generated response: {response}")
-            except Exception as chat_error:
-                logger.error(f"Error generating response: {str(chat_error)}", exc_info=True)
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to generate response"
-                )
+            logger.debug(f"Creating chat message with Body: {Body}")
+            response = chat_service.create_chat_message(
+                user=phone_number,
+                query=Body,
+                conversation_id=conversation_id
+            )
+            logger.debug(f"Generated response: {response}")
 
             # Send response back to user
-            try:
-                logger.debug("Sending message back to user")
-                messaging_service.send_message(phone_number, response)
-            except ValueError as ve:
-                logger.error(f"Validation error while sending message: {str(ve)}")
-                raise HTTPException(status_code=400, detail=str(ve))
-            except Exception as send_error:
-                logger.error(f"Error sending message: {str(send_error)}", exc_info=True)
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to send message"
-                )
+            logger.debug(f"Sending response back to: {phone_number}")
+            message_sid = messaging_service.send_message(phone_number, response)
+            logger.debug(f"Message sent successfully, SID: {message_sid}")
 
             return JSONResponse(
-                content={"message": "Message processed successfully."},
+                content={
+                    "message": "Message processed successfully.",
+                    "message_sid": message_sid
+                },
                 status_code=200
             )
 
-        except HTTPException as he:
-            # Re-raise HTTP exceptions
-            raise he
+        except ValueError as ve:
+            logger.error(f"Validation error: {str(ve)}")
+            return JSONResponse(
+                content={"message": str(ve)},
+                status_code=400
+            )
         except Exception as e:
-            logger.error(f"Unexpected error processing message: {str(e)}", exc_info=True)
+            logger.error(f"Error processing message: {str(e)}", exc_info=True)
 
             # Try to send error message to user
             try:
@@ -169,6 +144,7 @@ async def handle_message(
                 content={"message": "An unexpected error occurred while processing your message."},
                 status_code=500
             )
+
     except Exception as e:
         logger.error(f"Error in message handler: {str(e)}", exc_info=True)
         return JSONResponse(
