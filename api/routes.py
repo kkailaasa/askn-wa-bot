@@ -56,13 +56,22 @@ async def handle_message(
     Body: str = Form(...),
     From: str = Form(...),
 ):
+    logger.debug(f"Received message - From: {From}, Body: {Body}")
+    
     # Validate the request is from Twilio
     #await validate_twilio_request(request)
 
+    # Clean up the phone number format
+    phone_number = From
+    if not phone_number.startswith("whatsapp:"):
+        phone_number = f"whatsapp:{From}"
+    
+    logger.debug(f"Formatted phone number: {phone_number}")
+
     # Check rate limiting
-    if is_rate_limited(From):
-        remaining, reset_time = get_remaining_limit(From)
-        logger.warning(f"Rate limit exceeded for {From}. Resets in {reset_time} seconds")
+    if is_rate_limited(phone_number):
+        remaining, reset_time = get_remaining_limit(phone_number)
+        logger.warning(f"Rate limit exceeded for {phone_number}. Resets in {reset_time} seconds")
         return JSONResponse(
             content={
                 "message": "Rate limit exceeded. Please try again later.",
@@ -76,18 +85,23 @@ async def handle_message(
         chat_service = ChatService()
         messaging_service = MessagingService()
 
+        logger.debug("Getting conversation ID")
         # Get or create conversation ID
-        conversation_id = chat_service.get_conversation_id(From)
+        conversation_id = chat_service.get_conversation_id(phone_number)
+        logger.debug(f"Conversation ID: {conversation_id}")
 
         # Get response from chat service
+        logger.debug("Creating chat message")
         response = chat_service.create_chat_message(
-            user=From,
+            user=phone_number,
             query=Body,
             conversation_id=conversation_id
         )
+        logger.debug(f"Generated response: {response}")
 
         # Send response back to user
-        messaging_service.send_message(From, response)
+        logger.debug("Sending message back to user")
+        messaging_service.send_message(phone_number, response)
 
         return JSONResponse(
             content={"message": "Message processed successfully."},
@@ -95,16 +109,16 @@ async def handle_message(
         )
 
     except Exception as e:
-        logger.error(f"Error processing message: {str(e)}")
+        logger.error(f"Error processing message: {str(e)}", exc_info=True)
         # Try to send error message to user
         try:
             messaging_service = MessagingService()
             messaging_service.send_message(
-                From,
+                phone_number,
                 "Sorry, an error occurred while processing your message. Please try again later."
             )
         except Exception as send_error:
-            logger.error(f"Failed to send error message: {str(send_error)}")
+            logger.error(f"Failed to send error message: {str(send_error)}", exc_info=True)
 
         return JSONResponse(
             content={"message": "An error occurred while processing your message."},
