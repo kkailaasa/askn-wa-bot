@@ -77,29 +77,20 @@ async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_ap
     try:
         user = get_user_by_phone_or_username(phone_request.phone_number)
         if user:
-            # Add debug logging
-            logger.debug(f"Raw user object from Keycloak: {user}")
-            
-            # Format user response with enhanced information
             user_response = {
                 "id": user.get('id'),
                 "username": user.get('username'),
                 "email": user.get('email'),
                 "enabled": user.get('enabled', False),
-                # Access first and last names directly from the user object
-                "first_name": user.get('firstName', user.get('first_name')) or '',
-                "last_name": user.get('lastName', user.get('last_name')) or '',
+                "first_name": user.get('firstName') or '',
+                "last_name": user.get('lastName') or '',
                 "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
                 "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
-                "phone_verified": user.get('attributes', {}).get('phoneVerified', [None])[0],
+                "phone_verified": user.get('attributes', {}).get('phoneNumberVerified', [None])[0],
                 "gender": user.get('attributes', {}).get('gender', [None])[0],
                 "country": user.get('attributes', {}).get('country', [None])[0]
             }
 
-            # Log the formatted response
-            logger.debug(f"Formatted user response: {user_response}")
-
-            # If user exists but has no email, store temp data and proceed to check_email
             if not user.get('email'):
                 store_temp_data(phone_request.phone_number, {
                     "phone_number": phone_request.phone_number,
@@ -121,25 +112,6 @@ async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_ap
         logger.error(f"Keycloak operation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# Update the format_user_response function in check_email route as well
-def format_user_response(user):
-    logger.debug(f"Raw user object in format_user_response: {user}")
-    formatted = {
-        "id": user.get('id'),
-        "username": user.get('username'),
-        "email": user.get('email'),
-        "enabled": user.get('enabled', False),
-        "first_name": user.get('firstName', user.get('first_name')) or '',
-        "last_name": user.get('lastName', user.get('last_name')) or '',
-        "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
-        "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
-        "phone_verified": user.get('attributes', {}).get('phoneVerified', [None])[0],
-        "gender": user.get('attributes', {}).get('gender', [None])[0],
-        "country": user.get('attributes', {}).get('country', [None])[0]
-    }
-    logger.debug(f"Formatted user response: {formatted}")
-    return formatted
-
 @router.post("/check_email", response_model=dict)
 async def check_email(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
     if rate_limiter.is_rate_limited(
@@ -154,23 +126,20 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
         if not temp_data:
             raise HTTPException(status_code=400, detail="Invalid request sequence")
 
-        # Get both users
         phone_user = get_user_by_phone_or_username(email_request.phone_number)
         email_user = get_user_by_email_or_username(email_request.email)
 
-        # Format user response function
         def format_user_response(user):
             return {
                 "id": user.get('id'),
                 "username": user.get('username'),
                 "email": user.get('email'),
                 "enabled": user.get('enabled', False),
-                # Updated to use correct case for name fields
-                "first_name": user.get('firstName') or '',  # Changed from firstName to correct case
-                "last_name": user.get('lastName') or '',    # Changed from lastName to correct case
+                "first_name": user.get('firstName') or '',
+                "last_name": user.get('lastName') or '',
                 "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
                 "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
-                "phone_verified": user.get('attributes', {}).get('phoneVerified', [None])[0],
+                "phone_verified": user.get('attributes', {}).get('phoneNumberVerified', [None])[0],
                 "gender": user.get('attributes', {}).get('gender', [None])[0],
                 "country": user.get('attributes', {}).get('country', [None])[0]
             }
@@ -180,11 +149,9 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
             try:
                 keycloak_admin = create_keycloak_admin()
 
-                # First, update the phone user with the email user's data
                 email_attributes = email_user.get('attributes', {})
                 phone_attributes = phone_user.get('attributes', {})
 
-                # Merge attributes
                 merged_attributes = {
                     **email_attributes,
                     'phoneNumber': [email_request.phone_number],
@@ -193,17 +160,17 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
                     'verificationRoute': ['ngpt_wa']
                 }
 
-                # Update the email user's account with the phone number
                 keycloak_admin.update_user(
                     user_id=email_user['id'],
                     payload={
                         "attributes": merged_attributes,
                         "email": email_request.email,
-                        "emailVerified": True
+                        "emailVerified": True,
+                        "firstName": email_user.get('firstName', phone_user.get('firstName', '')),
+                        "lastName": email_user.get('lastName', phone_user.get('lastName', ''))
                     }
                 )
 
-                # Disable the phone-only account as we've merged it
                 keycloak_admin.update_user(
                     user_id=phone_user['id'],
                     payload={"enabled": False}
@@ -211,7 +178,6 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
 
                 logger.info(f"Successfully merged accounts for phone {email_request.phone_number} and email {email_request.email}")
 
-                # Get the updated user data
                 updated_user = get_user_by_email_or_username(email_request.email)
                 delete_temp_data(email_request.phone_number)
 
@@ -225,7 +191,6 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
                 raise HTTPException(status_code=500, detail="Failed to merge accounts")
 
         elif phone_user:
-            # Only phone user exists, add email to their account
             try:
                 keycloak_admin = create_keycloak_admin()
                 keycloak_admin.update_user(
@@ -247,7 +212,6 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
                 raise HTTPException(status_code=500, detail="Failed to update user email")
 
         elif email_user:
-            # Only email user exists, add phone to their account
             result = add_phone_attributes_to_user(
                 email_user['id'],
                 email_request.phone_number,
@@ -262,7 +226,6 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
             }
 
         else:
-            # Neither user exists, proceed to create new account
             store_temp_data(email_request.phone_number, {
                 **temp_data,
                 "email": email_request.email,
