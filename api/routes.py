@@ -83,8 +83,8 @@ async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_ap
                 "username": user.get('username'),
                 "email": user.get('email'),
                 "enabled": user.get('enabled', False),
-                "first_name": user.get('firstName', ''),
-                "last_name": user.get('lastName', ''),
+                "first_name": user.get('firstName') or '',  
+                "last_name": user.get('lastName') or '',    
                 "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
                 "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
                 "phone_verified": user.get('attributes', {}).get('phoneVerified', [None])[0],
@@ -139,8 +139,9 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
                 "username": user.get('username'),
                 "email": user.get('email'),
                 "enabled": user.get('enabled', False),
-                "first_name": user.get('firstName', ''),
-                "last_name": user.get('lastName', ''),
+                # Updated to use correct case for name fields
+                "first_name": user.get('firstName') or '',  # Changed from firstName to correct case
+                "last_name": user.get('lastName') or '',    # Changed from lastName to correct case
                 "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
                 "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
                 "phone_verified": user.get('attributes', {}).get('phoneVerified', [None])[0],
