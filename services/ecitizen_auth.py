@@ -114,11 +114,14 @@ def get_user_by_phone_or_username(identifier: str) -> Optional[Dict[str, Any]]:
 
         if users:
             user = users[0]
+            logger.debug(f"Raw user from Keycloak: {user}")
             return {
                 "id": user.get("id"),
                 "username": user.get("username"),
                 "email": user.get("email"),
                 "enabled": user.get("enabled", False),
+                "firstName": user.get("firstName"),
+                "lastName": user.get("lastName"),
                 "attributes": user.get("attributes", {})
             }
         return None

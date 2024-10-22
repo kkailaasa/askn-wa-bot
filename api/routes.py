@@ -77,20 +77,27 @@ async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_ap
     try:
         user = get_user_by_phone_or_username(phone_request.phone_number)
         if user:
+            # Add debug logging
+            logger.debug(f"Raw user object from Keycloak: {user}")
+            
             # Format user response with enhanced information
             user_response = {
                 "id": user.get('id'),
                 "username": user.get('username'),
                 "email": user.get('email'),
                 "enabled": user.get('enabled', False),
-                "first_name": user.get('firstName') or '',  
-                "last_name": user.get('lastName') or '',    
+                # Access first and last names directly from the user object
+                "first_name": user.get('firstName', user.get('first_name')) or '',
+                "last_name": user.get('lastName', user.get('last_name')) or '',
                 "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
                 "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
                 "phone_verified": user.get('attributes', {}).get('phoneVerified', [None])[0],
                 "gender": user.get('attributes', {}).get('gender', [None])[0],
                 "country": user.get('attributes', {}).get('country', [None])[0]
             }
+
+            # Log the formatted response
+            logger.debug(f"Formatted user response: {user_response}")
 
             # If user exists but has no email, store temp data and proceed to check_email
             if not user.get('email'):
@@ -113,6 +120,25 @@ async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_ap
     except KeycloakOperationError as e:
         logger.error(f"Keycloak operation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+# Update the format_user_response function in check_email route as well
+def format_user_response(user):
+    logger.debug(f"Raw user object in format_user_response: {user}")
+    formatted = {
+        "id": user.get('id'),
+        "username": user.get('username'),
+        "email": user.get('email'),
+        "enabled": user.get('enabled', False),
+        "first_name": user.get('firstName', user.get('first_name')) or '',
+        "last_name": user.get('lastName', user.get('last_name')) or '',
+        "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
+        "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
+        "phone_verified": user.get('attributes', {}).get('phoneVerified', [None])[0],
+        "gender": user.get('attributes', {}).get('gender', [None])[0],
+        "country": user.get('attributes', {}).get('country', [None])[0]
+    }
+    logger.debug(f"Formatted user response: {formatted}")
+    return formatted
 
 @router.post("/check_email", response_model=dict)
 async def check_email(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
