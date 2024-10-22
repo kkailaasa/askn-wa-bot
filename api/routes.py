@@ -58,15 +58,20 @@ async def handle_message(
 ):
     logger.debug(f"Received message - From: {From}, Body: {Body}")
 
-    # Validate the request is from Twilio
-    #await validate_twilio_request(request)
-
     # Clean up the phone number format
-    phone_number = From
+    phone_number = From.replace("whatsapp:", "")  # Remove whatsapp: prefix if present
+    if not phone_number.startswith("+"):
+        phone_number = f"+{phone_number}"  # Ensure number starts with +
+
+    # Format for whatsapp
     if not phone_number.startswith("whatsapp:"):
-        phone_number = f"whatsapp:{From}"
+        phone_number = f"whatsapp:{phone_number}"
 
     logger.debug(f"Formatted phone number: {phone_number}")
+
+    # Validate the request is from Twilio
+    #await validate_twilio_request(request)
+    # Note: Uncomment the above line when ready to enforce Twilio validation
 
     # Check rate limiting
     if is_rate_limited(phone_number):
