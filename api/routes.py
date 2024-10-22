@@ -59,99 +59,104 @@ async def handle_message(
     logger.debug(f"Received message - From: {From}, Body: {Body}")
 
     # Clean up the phone number format
-    phone_number = From.replace("whatsapp:", "")  # Remove whatsapp: prefix if present
-    if not phone_number.startswith("+"):
-        phone_number = f"+{phone_number}"  # Ensure number starts with +
+    try:
+        # Initialize messaging service first to validate the configuration
+        messaging_service = MessagingService()
+        
+        # Format the phone number consistently
+        phone_number = messaging_service.format_phone_number(From)
+        
+        if not messaging_service.validate_phone_number(phone_number):
+            logger.error(f"Invalid phone number format: {phone_number}")
+            return JSONResponse(
+                content={"message": "Invalid phone number format"},
+                status_code=400
+            )
 
-    # Format for whatsapp
-    if not phone_number.startswith("whatsapp:"):
-        phone_number = f"whatsapp:{phone_number}"
-
-    logger.debug(f"Formatted phone number: {phone_number}")
+        logger.debug(f"Formatted phone number: {phone_number}")
 
     # Validate the request is from Twilio
     #await validate_twilio_request(request)
     # Note: Uncomment the above line when ready to enforce Twilio validation
 
     # Check rate limiting
-    if is_rate_limited(phone_number):
-        remaining, reset_time = get_remaining_limit(phone_number)
-        logger.warning(f"Rate limit exceeded for {phone_number}. Resets in {reset_time} seconds")
-        return JSONResponse(
-            content={
-                "message": "Rate limit exceeded. Please try again later.",
-                "reset_in_seconds": reset_time
-            },
-            status_code=429
-        )
-
-    try:
-        # Initialize services
-        chat_service = None
-        messaging_service = None
+        if is_rate_limited(phone_number):
+            remaining, reset_time = get_remaining_limit(phone_number)
+            logger.warning(f"Rate limit exceeded for {phone_number}. Resets in {reset_time} seconds")
+            return JSONResponse(
+                content={
+                    "message": "Rate limit exceeded. Please try again later.",
+                    "reset_in_seconds": reset_time
+                },
+                status_code=429
+            )
 
         try:
-            chat_service = ChatService()
-            messaging_service = MessagingService()
-        except Exception as init_error:
-            logger.error(f"Error initializing services: {str(init_error)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to initialize messaging services"
+            # Initialize services
+            chat_service = None
+            try:
+                chat_service = ChatService()
+            except Exception as init_error:
+                logger.error(f"Error initializing chat service: {str(init_error)}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to initialize chat service"
+                )
+
+            # Get or create conversation ID
+            try:
+                logger.debug("Getting conversation ID")
+                conversation_id = chat_service.get_conversation_id(phone_number)
+                logger.debug(f"Conversation ID: {conversation_id}")
+            except Exception as conv_error:
+                logger.error(f"Error getting conversation ID: {str(conv_error)}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to get conversation"
+                )
+
+            # Get response from chat service
+            try:
+                logger.debug("Creating chat message")
+                response = chat_service.create_chat_message(
+                    user=phone_number,
+                    query=Body,
+                    conversation_id=conversation_id
+                )
+                logger.debug(f"Generated response: {response}")
+            except Exception as chat_error:
+                logger.error(f"Error generating response: {str(chat_error)}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to generate response"
+                )
+
+            # Send response back to user
+            try:
+                logger.debug("Sending message back to user")
+                messaging_service.send_message(phone_number, response)
+            except ValueError as ve:
+                logger.error(f"Validation error while sending message: {str(ve)}")
+                raise HTTPException(status_code=400, detail=str(ve))
+            except Exception as send_error:
+                logger.error(f"Error sending message: {str(send_error)}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to send message"
+                )
+
+            return JSONResponse(
+                content={"message": "Message processed successfully."},
+                status_code=200
             )
 
-        # Get or create conversation ID
-        try:
-            logger.debug("Getting conversation ID")
-            conversation_id = chat_service.get_conversation_id(phone_number)
-            logger.debug(f"Conversation ID: {conversation_id}")
-        except Exception as conv_error:
-            logger.error(f"Error getting conversation ID: {str(conv_error)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to get conversation"
-            )
+        except HTTPException as he:
+            # Re-raise HTTP exceptions
+            raise he
+        except Exception as e:
+            logger.error(f"Unexpected error processing message: {str(e)}", exc_info=True)
 
-        # Get response from chat service
-        try:
-            logger.debug("Creating chat message")
-            response = chat_service.create_chat_message(
-                user=phone_number,
-                query=Body,
-                conversation_id=conversation_id
-            )
-            logger.debug(f"Generated response: {response}")
-        except Exception as chat_error:
-            logger.error(f"Error generating response: {str(chat_error)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to generate response"
-            )
-
-        # Send response back to user
-        try:
-            logger.debug("Sending message back to user")
-            messaging_service.send_message(phone_number, response)
-        except Exception as send_error:
-            logger.error(f"Error sending message: {str(send_error)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to send message"
-            )
-
-        return JSONResponse(
-            content={"message": "Message processed successfully."},
-            status_code=200
-        )
-
-    except HTTPException as he:
-        # Re-raise HTTP exceptions
-        raise he
-    except Exception as e:
-        logger.error(f"Unexpected error processing message: {str(e)}", exc_info=True)
-
-        # Try to send error message to user
-        if messaging_service:
+            # Try to send error message to user
             try:
                 messaging_service.send_message(
                     phone_number,
@@ -160,8 +165,14 @@ async def handle_message(
             except Exception as send_error:
                 logger.error(f"Failed to send error message: {str(send_error)}", exc_info=True)
 
+            return JSONResponse(
+                content={"message": "An unexpected error occurred while processing your message."},
+                status_code=500
+            )
+    except Exception as e:
+        logger.error(f"Error in message handler: {str(e)}", exc_info=True)
         return JSONResponse(
-            content={"message": "An unexpected error occurred while processing your message."},
+            content={"message": "An error occurred while processing your message."},
             status_code=500
         )
 

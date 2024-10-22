@@ -40,13 +40,10 @@ class CustomTwilioHttpClient(TwilioHttpClient):
 
     def request(self, method, url, params=None, data=None, headers=None, auth=None, timeout=None,
                 allow_redirects=True):
-        """
-        Make an HTTP request with parameters provided.
-        """
         try:
             logger.debug(f"Making Twilio request: {method} {url}")
+            logger.debug(f"Request data: {data}")
 
-            # Prepare auth header
             if auth:
                 auth_string = f"{auth[0]}:{auth[1]}"
                 import base64
@@ -55,7 +52,6 @@ class CustomTwilioHttpClient(TwilioHttpClient):
                     headers = {}
                 headers['Authorization'] = f'Basic {auth_header}'
 
-            # Use the connection pool to make the request
             response = self.pool.request(
                 method=method,
                 url=url,
@@ -65,10 +61,7 @@ class CustomTwilioHttpClient(TwilioHttpClient):
                 retries=False if not allow_redirects else None,
             )
 
-            # Log response status
             logger.debug(f"Twilio response status: {response.status}")
-
-            # Wrap the response in our adapter
             adapted_response = TwilioResponseAdapter(response)
             
             if not adapted_response.ok:
@@ -90,32 +83,69 @@ class MessagingService:
                 settings.TWILIO_AUTH_TOKEN,
                 http_client=http_client
             )
-            self.twilio_number = settings.TWILIO_NUMBER
+            self.twilio_number = settings.TWILIO_NUMBER.strip()
+            if not self.twilio_number:
+                raise ValueError("TWILIO_NUMBER not configured")
         except Exception as e:
             self.logger.error(f"Error initializing MessagingService: {str(e)}")
             raise
 
+    def format_phone_number(self, phone_number: str, add_whatsapp: bool = True) -> str:
+        """Format phone number for Twilio WhatsApp messaging."""
+        # Remove any existing prefixes
+        phone_number = phone_number.replace("whatsapp:", "").strip()
+        
+        # Ensure it starts with +
+        if not phone_number.startswith('+'):
+            phone_number = f"+{phone_number}"
+            
+        # Add WhatsApp prefix if needed
+        if add_whatsapp:
+            phone_number = f"whatsapp:{phone_number}"
+            
+        return phone_number
+
+    def validate_phone_number(self, phone_number: str) -> bool:
+        """Basic validation for phone numbers."""
+        cleaned = phone_number.replace("whatsapp:", "").replace("+", "").strip()
+        return (
+            cleaned.isdigit() and  # Only contains digits
+            len(cleaned) >= 10 and  # At least 10 digits
+            len(cleaned) <= 15      # No more than 15 digits
+        )
+
     def send_message(self, to_number: str, body_text: str):
         try:
-            # Ensure the number has the whatsapp: prefix
-            if not to_number.startswith("whatsapp:"):
-                to_number = f"whatsapp:{to_number}"
+            if not to_number or not body_text:
+                raise ValueError("Both 'to_number' and 'body_text' are required")
 
-            from_number = f"whatsapp:{self.twilio_number}"
+            # Format and validate the phone numbers
+            to_number = self.format_phone_number(to_number)
+            from_number = self.format_phone_number(self.twilio_number)
+
+            if not self.validate_phone_number(to_number):
+                raise ValueError(f"Invalid 'to' phone number format: {to_number}")
+
+            if not self.validate_phone_number(from_number):
+                raise ValueError(f"Invalid 'from' phone number format: {from_number}")
 
             self.logger.debug(f"Sending message - To: {to_number}, From: {from_number}, Body: {body_text}")
 
             # Create and send the message
             message = self.client.messages.create(
+                to=to_number,
                 from_=from_number,
-                body=body_text,
-                to=to_number
+                body=body_text
             )
 
             self.logger.info(f"Message sent successfully - SID: {message.sid}")
             self.logger.debug(f"Complete message object: {message}")
 
             return message.sid
+
+        except ValueError as ve:
+            self.logger.error(f"Validation error: {str(ve)}")
+            raise
         except Exception as e:
             self.logger.error(f"Error sending message: {str(e)}", exc_info=True)
             raise
