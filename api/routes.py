@@ -69,14 +69,12 @@ class UserResponse(BaseModel):
 async def handle_message(
     request: Request,
     Body: str = Form(...),
-    From: str = Form(...),
+    From: str = Form(...)
 ):
     logger.debug(f"Received message - From: {From}, Body: {Body}")
-    
-    # Clean up the phone number format
-    phone_number = From
-    if not phone_number.startswith("whatsapp:"):
-        phone_number = f"whatsapp:{From}"
+
+    # Clean up the phone number format by removing WhatsApp prefix if present
+    phone_number = From.replace("whatsapp:", "") if From.startswith("whatsapp:") else From
     
     logger.debug(f"Formatted phone number: {phone_number}")
 
@@ -94,6 +92,7 @@ async def handle_message(
 
     chat_service = None
     messaging_service = None
+
     try:
         # Initialize services
         try:
