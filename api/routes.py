@@ -22,7 +22,6 @@ from keycloak.exceptions import KeycloakError
 from services.email_service import send_otp_email
 from services.auth import get_api_key
 from tasks.celery_tasks import process_message, check_phone, check_email, create_account
-#from utils.twilio_validator import validate_twilio_request
 from utils.redis_helpers import is_rate_limited, get_remaining_limit
 from services import ChatService, MessagingService
 from pydantic import BaseModel, EmailStr, Field
@@ -91,94 +90,15 @@ async def handle_message(
             status_code=429
         )
 
-    chat_service = None
-    messaging_service = None
-
-    try:
-        # Initialize services
-        try:
-            chat_service = ChatService()
-            messaging_service = MessagingService()
-        except Exception as init_error:
-            logger.error(f"Error initializing services: {str(init_error)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to initialize messaging services"
-            )
-
-        # Get or create conversation ID
-        try:
-            logger.debug("Getting conversation ID")
-            conversation_id = chat_service.get_conversation_id(phone_number)
-            logger.debug(f"Conversation ID: {conversation_id}")
-        except Exception as conv_error:
-            logger.error(f"Error getting conversation ID: {str(conv_error)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to get conversation"
-            )
-
-        # Get response from chat service
-        try:
-            logger.debug("Creating chat message")
-            response = chat_service.create_chat_message(
-                user=phone_number,
-                query=Body,
-                conversation_id=conversation_id
-            )
-            logger.debug(f"Generated response: {response}")
-        except Exception as chat_error:
-            logger.error(f"Error generating response: {str(chat_error)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to generate response"
-            )
-
-        # Send response back to user
-        try:
-            logger.debug("Sending message back to user")
-            messaging_service.send_message(phone_number, response)
-        except Exception as send_error:
-            logger.error(f"Error sending message: {str(send_error)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to send message"
-            )
-
-        return JSONResponse(
-            content={"message": "Message processed successfully."},
-            status_code=200
-        )
-
-    except HTTPException as he:
-        # Re-raise HTTP exceptions
-        raise he
-    except Exception as e:
-        logger.error(f"Unexpected error processing message: {str(e)}", exc_info=True)
-        # Try to send error message to user
-        if messaging_service:
-            try:
-                messaging_service.send_message(
-                    phone_number,
-                    "Sorry, an error occurred while processing your message. Please try again later."
-                )
-            except Exception as send_error:
-                logger.error(f"Failed to send error message: {str(send_error)}", exc_info=True)
-
-        return JSONResponse(
-            content={"message": "An unexpected error occurred while processing your message."},
-            status_code=500
-        )
-
-    # Enqueue the message processing task
-       process_message.delay(phone_number, Body)
-       return JSONResponse(
-           content={"message": "Message processing started."},
-           status_code=202
-       )
+    # Enqueue the message processing task and return immediately
+    process_message.delay(phone_number, Body)
+    return JSONResponse(
+        content={"message": "Message processing started."},
+        status_code=202
+    )
 
 @router.post("/check_phone", response_model=dict)
-async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_api_key)):
+async def check_phone_endpoint(phone_request: PhoneRequest, api_key: str = Depends(get_api_key)):
     if rate_limiter.is_rate_limited(
         f"create_user:{phone_request.phone_number}",
         limit=settings.rate_limit["create_user"]["limit"],
@@ -187,48 +107,14 @@ async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_ap
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
-        user = get_user_by_phone_or_username(phone_request.phone_number)
-        if user:
-            user_response = {
-                "id": user.get('id'),
-                "username": user.get('username'),
-                "email": user.get('email'),
-                "enabled": user.get('enabled', False),
-                "first_name": user.get('firstName') or '',
-                "last_name": user.get('lastName') or '',
-                "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
-                "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
-                "phone_verified": user.get('attributes', {}).get('phoneNumberVerified', [None])[0],
-                "gender": user.get('attributes', {}).get('gender', [None])[0],
-                "country": user.get('attributes', {}).get('country', [None])[0]
-            }
-
-            if not user.get('email'):
-                store_temp_data(phone_request.phone_number, {
-                    "phone_number": phone_request.phone_number,
-                    "user_id": user.get('id')
-                })
-                return {
-                    "message": "User found but email not set",
-                    "user": user_response,
-                    "next_step": "check_email"
-                }
-            return {
-                "message": "User found",
-                "user": user_response
-            }
-        else:
-            store_temp_data(phone_request.phone_number, {"phone_number": phone_request.phone_number})
-            return {"message": "User not found", "next_step": "check_email"}
+        result = check_phone.delay(phone_request.phone_number).get()
+        return result
     except KeycloakOperationError as e:
         logger.error(f"Keycloak operation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    result = check_phone.delay(phone_request.phone_number).get()
-    return result
-
 @router.post("/check_email", response_model=dict)
-async def check_email(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
+async def check_email_endpoint(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
     if rate_limiter.is_rate_limited(
         f"add_email:{email_request.email}",
         limit=settings.rate_limit["add_email"]["limit"],
@@ -237,128 +123,14 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
-        temp_data = get_temp_data(email_request.phone_number)
-        if not temp_data:
-            raise HTTPException(status_code=400, detail="Invalid request sequence")
-
-        phone_user = get_user_by_phone_or_username(email_request.phone_number)
-        email_user = get_user_by_email_or_username(email_request.email)
-
-        def format_user_response(user):
-            return {
-                "id": user.get('id'),
-                "username": user.get('username'),
-                "email": user.get('email'),
-                "enabled": user.get('enabled', False),
-                "first_name": user.get('firstName') or '',
-                "last_name": user.get('lastName') or '',
-                "phone_number": user.get('attributes', {}).get('phoneNumber', [None])[0],
-                "phone_type": user.get('attributes', {}).get('phoneType', [None])[0],
-                "phone_verified": user.get('attributes', {}).get('phoneNumberVerified', [None])[0],
-                "gender": user.get('attributes', {}).get('gender', [None])[0],
-                "country": user.get('attributes', {}).get('country', [None])[0]
-            }
-
-        if phone_user and email_user:
-            # Both users exist - we need to merge them
-            try:
-                keycloak_admin = create_keycloak_admin()
-
-                email_attributes = email_user.get('attributes', {})
-                phone_attributes = phone_user.get('attributes', {})
-
-                merged_attributes = {
-                    **email_attributes,
-                    'phoneNumber': [email_request.phone_number],
-                    'phoneType': ['whatsapp'],
-                    'phoneVerified': ['yes'],
-                    'verificationRoute': ['ngpt_wa']
-                }
-
-                keycloak_admin.update_user(
-                    user_id=email_user['id'],
-                    payload={
-                        "attributes": merged_attributes,
-                        "email": email_request.email,
-                        "emailVerified": True,
-                        "firstName": email_user.get('firstName', phone_user.get('firstName', '')),
-                        "lastName": email_user.get('lastName', phone_user.get('lastName', ''))
-                    }
-                )
-
-                keycloak_admin.update_user(
-                    user_id=phone_user['id'],
-                    payload={"enabled": False}
-                )
-
-                logger.info(f"Successfully merged accounts for phone {email_request.phone_number} and email {email_request.email}")
-
-                updated_user = get_user_by_email_or_username(email_request.email)
-                delete_temp_data(email_request.phone_number)
-
-                return {
-                    "message": "Accounts merged successfully",
-                    "user": format_user_response(updated_user)
-                }
-
-            except KeycloakError as e:
-                logger.error(f"Failed to merge accounts: {str(e)}")
-                raise HTTPException(status_code=500, detail="Failed to merge accounts")
-
-        elif phone_user:
-            try:
-                keycloak_admin = create_keycloak_admin()
-                keycloak_admin.update_user(
-                    user_id=phone_user['id'],
-                    payload={
-                        "email": email_request.email,
-                        "emailVerified": False
-                    }
-                )
-                updated_user = get_user_by_phone_or_username(email_request.phone_number)
-                delete_temp_data(email_request.phone_number)
-                return {
-                    "message": "Email added to existing account",
-                    "user": format_user_response(updated_user)
-                }
-
-            except KeycloakError as e:
-                logger.error(f"Failed to update user email: {str(e)}")
-                raise HTTPException(status_code=500, detail="Failed to update user email")
-
-        elif email_user:
-            result = add_phone_attributes_to_user(
-                email_user['id'],
-                email_request.phone_number,
-                phone_type="whatsapp",
-                phone_verified="yes",
-                verification_route="ngpt_wa"
-            )
-            delete_temp_data(email_request.phone_number)
-            return {
-                "message": "Phone attributes added to existing account",
-                "user": format_user_response(email_user)
-            }
-
-        else:
-            store_temp_data(email_request.phone_number, {
-                **temp_data,
-                "email": email_request.email,
-                "phoneType": "whatsapp",
-                "phoneVerified": "yes",
-                "verificationRoute": "ngpt_wa"
-            })
-            return {"message": "User not found", "next_step": "create_account"}
-
+        result = check_email.delay(email_request.phone_number, email_request.email).get()
+        return result
     except KeycloakOperationError as e:
-        logger.error(f"Keycloak operation failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-    result = check_email.delay(email_request.phone_number, email_request.email).get()
-    return result
+        logger.error(f"Failed to check email: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to check email")
 
 @router.post("/create_account", response_model=dict)
-async def create_account(user_data: CreateUserRequest, api_key: str = Depends(get_api_key)):
+async def create_account_endpoint(user_data: CreateUserRequest, api_key: str = Depends(get_api_key)):
     if rate_limiter.is_rate_limited(
         f"create_user:{user_data.phone_number}",
         limit=settings.rate_limit["create_user"]["limit"],
@@ -366,36 +138,19 @@ async def create_account(user_data: CreateUserRequest, api_key: str = Depends(ge
     ):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
-    temp_data = get_temp_data(user_data.phone_number)
-    if not temp_data:
-        raise HTTPException(status_code=400, detail="Invalid request sequence")
-
     try:
-        result = create_user_with_phone(
-            phone_number=user_data.phone_number,
-            email=user_data.email,
-            first_name=user_data.first_name,
-            last_name=user_data.last_name,
-            gender=user_data.gender,
-            country=user_data.country,
-            phone_type=temp_data.get("phoneType", "whatsapp"),
-            phone_verified=temp_data.get("phoneVerified", "yes"),
-            verification_route=temp_data.get("verificationRoute", "ngpt_wa")
-        )
-        delete_temp_data(user_data.phone_number)
-        return {
-            "message": "User account created with UPDATE_PASSWORD action",
-            "user_id": result["user_id"],
-            "next_step": "verify_email"
-        }
+        result = create_account.delay(
+            user_data.phone_number,
+            user_data.email,
+            user_data.first_name,
+            user_data.last_name,
+            user_data.gender,
+            user_data.country
+        ).get()
+        return result
     except KeycloakOperationError as e:
         logger.error(f"Failed to create user account: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to create user account")
-
-    result = create_account.delay(
-        user_data.phone_number, user_data.email, user_data.first_name, user_data.last_name, user_data.gender, user_data.country
-    ).get()
-    return result
 
 @router.post("/send_email_otp", response_model=dict)
 async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
@@ -403,7 +158,7 @@ async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get
         f"add_email:{email_request.email}",
         limit=settings.rate_limit["add_email"]["limit"],
         period=settings.rate_limit["add_email"]["period"]
-        ):
+    ):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
     try:
@@ -418,11 +173,8 @@ async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get
         logger.error(f"Error in send_email_otp: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-    result = send_otp_email_task.delay(email_request.email).get()
-    return result
-
 @router.post("/verify_email", response_model=dict)
-async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Depends(get_api_key)):
+async def verify_email_endpoint(verify_data: VerifyEmailRequest, api_key: str = Depends(get_api_key)):
     if rate_limiter.is_rate_limited(
         f"verify_email:{verify_data.email}",
         limit=settings.rate_limit["verify_email"]["limit"],
@@ -435,15 +187,11 @@ async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Dep
         if not verification_result["valid"]:
             raise HTTPException(status_code=400, detail=verification_result["message"])
 
-        # If OTP is valid, mark the email as verified in Keycloak
         result = verify_email(verify_data.email)
         return {"message": "Email verified successfully."}
     except KeycloakOperationError as e:
         logger.error(f"Failed to verify email: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to verify email")
     except Exception as e:
-        logger.error(f"Error in verify_email_route: {str(e)}")
+        logger.error(f"Error in verify_email_endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
-    result = verify_email_task.delay(verify_data.email, verify_data.otp).get()
-    return result
