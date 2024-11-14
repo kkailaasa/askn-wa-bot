@@ -7,6 +7,7 @@ services:
       - "7262:8000"
     depends_on:
       - redis
+      - db
     env_file:
       - .env
 
@@ -15,6 +16,7 @@ services:
     command: celery -A tasks.celery_tasks.celery_app worker --loglevel=info
     depends_on:
       - redis
+      - db
     env_file:
       - .env
 
@@ -23,6 +25,7 @@ services:
     command: celery -A tasks.celery_tasks.celery_app beat --loglevel=info
     depends_on:
       - redis
+      - db
     env_file:
       - .env
 
@@ -32,5 +35,13 @@ services:
       - redis_data:/data
     command: redis-server --appendonly yes
 
+  db:
+    image: postgres:15-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env
+
 volumes:
   redis_data:
+  postgres_data:

@@ -13,3 +13,6 @@ pydantic[email]
 envelope
 sendgrid
 requests
+sqlalchemy
+alembic
+psycopg2-binary

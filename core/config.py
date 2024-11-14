@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     EMAIL_FROM_NAME: str
     EMAIL_FROM: str
 
+    # Postgres Configuration
+    DATABASE_URL: str = "postgresql://postgres:postgres@db:5432/chat_logs"
+    DATABASE_POOL_SIZE: int = 5
+    DATABASE_POOL_OVERFLOW: int = 10
+    DATABASE_POOL_TIMEOUT: int = 30
+
     class Config:
         env_file = ".env"
         case_sensitive = True
