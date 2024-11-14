@@ -38,7 +38,7 @@ services:
   redis:
     image: "redis:alpine"
     volumes:
-      - redis_data:/data
+      - ./data/redis_data:/data
     command: redis-server --appendonly yes
 
   db:
