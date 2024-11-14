@@ -37,7 +37,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
-app.include_router(load_balancer_router, prefix="/api/v1")
+app.include_router(load_balancer_router)
 
 @app.exception_handler(KeycloakOperationError)
 async def keycloak_exception_handler(request: Request, exc: KeycloakOperationError):
