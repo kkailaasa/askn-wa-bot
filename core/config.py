@@ -9,7 +9,13 @@ class Settings(BaseSettings):
     # Twilio Configuration
     TWILIO_ACCOUNT_SID: str
     TWILIO_AUTH_TOKEN: str
+    TWILIO_NUMBERS: List[str] = []
     TWILIO_NUMBER: str
+    TWILIO_NUMBER_2: str
+    MAX_MESSAGES_PER_SECOND: int = 70
+
+    #Mattermost Webhook Url
+    MATTERMOST_WEBHOOK_URL: str
 
     # Dify Configuration
     DIFY_KEY: str
@@ -76,6 +82,7 @@ class Settings(BaseSettings):
         super().__init__(**kwargs)
         self.CORS_ALLOWED_ORIGINS = self._parse_list_from_env(self.CORS_ALLOWED_ORIGINS)
         self.rate_limit_config = self._init_rate_limit_config()
+        self.TWILIO_NUMBERS = [self.TWILIO_NUMBER, self.TWILIO_NUMBER_2]
 
     def _init_rate_limit_config(self) -> Dict[str, Dict[str, int]]:
         """Initialize rate limit configuration from environment variables"""

@@ -3,10 +3,13 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from api.routes import router
+from api.load_balancer import router as load_balancer_router
 from core.config import Settings
 from services.ecitizen_auth import KeycloakOperationError
 from utils.http_client import http_pool
 from utils.redis_pool import redis_pool, get_redis_client
+from utils.logging_utils import log_error
+import sys
 import atexit
 import logging
 
@@ -34,6 +37,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(load_balancer_router, prefix="/api/v1")
 
 @app.exception_handler(KeycloakOperationError)
 async def keycloak_exception_handler(request: Request, exc: KeycloakOperationError):
