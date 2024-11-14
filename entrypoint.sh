@@ -9,8 +9,11 @@ done
 
 >&2 echo "Postgres is up - executing command"
 
-# Run migrations
-alembic upgrade head
+# Only run migrations from the web service
+if [ "$SERVICE_NAME" = "web" ]; then
+    echo "Running migrations..."
+    alembic upgrade head
+fi
 
 # Run the command as appuser
 exec gosu appuser "$@"

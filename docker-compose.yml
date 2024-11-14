@@ -8,6 +8,8 @@ services:
     depends_on:
       - redis
       - db
+    environment:
+      - SERVICE_NAME=web
     env_file:
       - .env
 
@@ -17,6 +19,8 @@ services:
     depends_on:
       - redis
       - db
+    environment:
+      - SERVICE_NAME=celery_worker
     env_file:
       - .env
 
@@ -26,6 +30,8 @@ services:
     depends_on:
       - redis
       - db
+    environment:
+      - SERVICE_NAME=celery_beat
     env_file:
       - .env
 
