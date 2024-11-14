@@ -1,4 +1,3 @@
-# services/dify_chat.py
 from typing import Optional
 from dify_client import ChatClient
 from core.config import settings
@@ -31,10 +30,24 @@ class ChatService:
         )
         return response
 
+    def format_phone_number(self, phone_number: str) -> str:
+        """Format phone number for Dify chat"""
+        self.logger.debug(f"Formatting phone number: {phone_number}")
+
+        # Remove any existing prefixes and whitespace
+        phone_number = phone_number.replace("whatsapp:", "").strip()
+
+        # Ensure it starts with +
+        if not phone_number.startswith('+'):
+            phone_number = f"+{phone_number}"
+
+        self.logger.debug(f"Formatted phone number result: {phone_number}")
+        return phone_number
+
     def get_conversation_id(self, user: str) -> Optional[str]:
         try:
             self.logger.debug(f"Getting conversations for user: {user}")
-            conversations = self.chat_client.get_conversations(user=user)
+            conversations = self.chat_client.get_conversations(user=self.format_phone_number(user))
             conversations.raise_for_status()
 
             response_data = conversations.json()
@@ -56,7 +69,7 @@ class ChatService:
             response = self.chat_client.create_chat_message(
                 inputs={},
                 query=query,
-                user=user,
+                user=self.format_phone_number(user),
                 conversation_id=conversation_id,
                 response_mode="blocking"
             )
