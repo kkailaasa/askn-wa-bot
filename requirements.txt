@@ -3,7 +3,6 @@ uvicorn
 twilio
 python-decouple
 python_multipart
-pyngrok
 dify-client
 redis
 python-keycloak
