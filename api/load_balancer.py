@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request, Response, Depends
 from fastapi.responses import RedirectResponse, JSONResponse
 import redis
 from typing import Dict, List, Optional, Tuple
@@ -8,6 +8,7 @@ import logging
 from db_scripts.load_balancer import LoadBalancerLog, NumberLoadStats
 from db_scripts.base import SessionLocal
 from core.config import settings
+from services.auth import get_api_key
 
 router = APIRouter()
 redis_client = redis.from_url(settings.REDIS_URL)
