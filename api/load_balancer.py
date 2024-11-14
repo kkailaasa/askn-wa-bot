@@ -174,7 +174,7 @@ async def signup(request: Request):
     return RedirectResponse(url=redirect_url)
 
 @router.get("/load-stats")
-async def get_load_stats(request: Request) -> Dict[str, float]:
+async def get_load_stats(request: Request, api_key: str = Depends(get_api_key)) -> Dict[str, float]:
     """Get current load statistics for all numbers"""
     return {
         number: get_number_load(number)
