@@ -21,6 +21,7 @@ from services.ecitizen_auth import (
 from keycloak.exceptions import KeycloakError
 from services.email_service import send_otp_email
 from services.auth import get_api_key
+from tasks.celery_tasks import process_message, check_phone, check_email, create_account
 #from utils.twilio_validator import validate_twilio_request
 from utils.redis_helpers import is_rate_limited, get_remaining_limit
 from services import ChatService, MessagingService
@@ -169,6 +170,13 @@ async def handle_message(
             status_code=500
         )
 
+    # Enqueue the message processing task
+       process_message.delay(phone_number, Body)
+       return JSONResponse(
+           content={"message": "Message processing started."},
+           status_code=202
+       )
+
 @router.post("/check_phone", response_model=dict)
 async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_api_key)):
     if rate_limiter.is_rate_limited(
@@ -215,6 +223,9 @@ async def check_phone(phone_request: PhoneRequest, api_key: str = Depends(get_ap
     except KeycloakOperationError as e:
         logger.error(f"Keycloak operation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+    result = check_phone.delay(phone_request.phone_number).get()
+    return result
 
 @router.post("/check_email", response_model=dict)
 async def check_email(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
@@ -343,6 +354,9 @@ async def check_email(email_request: EmailRequest, api_key: str = Depends(get_ap
         logger.error(f"Keycloak operation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+    result = check_email.delay(email_request.phone_number, email_request.email).get()
+    return result
+
 @router.post("/create_account", response_model=dict)
 async def create_account(user_data: CreateUserRequest, api_key: str = Depends(get_api_key)):
     if rate_limiter.is_rate_limited(
@@ -378,6 +392,11 @@ async def create_account(user_data: CreateUserRequest, api_key: str = Depends(ge
         logger.error(f"Failed to create user account: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to create user account")
 
+    result = create_account.delay(
+        user_data.phone_number, user_data.email, user_data.first_name, user_data.last_name, user_data.gender, user_data.country
+    ).get()
+    return result
+
 @router.post("/send_email_otp", response_model=dict)
 async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get_api_key)):
     if rate_limiter.is_rate_limited(
@@ -398,6 +417,9 @@ async def send_email_otp(email_request: EmailRequest, api_key: str = Depends(get
     except Exception as e:
         logger.error(f"Error in send_email_otp: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+    result = send_otp_email_task.delay(email_request.email).get()
+    return result
 
 @router.post("/verify_email", response_model=dict)
 async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Depends(get_api_key)):
@@ -422,3 +444,6 @@ async def verify_email_route(verify_data: VerifyEmailRequest, api_key: str = Dep
     except Exception as e:
         logger.error(f"Error in verify_email_route: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+    result = verify_email_task.delay(verify_data.email, verify_data.otp).get()
+    return result
