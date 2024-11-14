@@ -11,7 +11,7 @@ class ConversationLog(Base):
     response = Column(Text)
     conversation_id = Column(String(100), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    metadata = Column(JSON)
+    meta_data = Column(JSON)
 
 class ErrorLog(Base):
     __tablename__ = "error_logs"
@@ -23,4 +23,4 @@ class ErrorLog(Base):
     conversation_id = Column(String(100), nullable=True)
     phone_number = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    metadata = Column(JSON)
+    meta_data = Column(JSON)
