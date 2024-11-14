@@ -2,7 +2,8 @@ version: '3.8'
 services:
   bot:
     build: .
-    network_mode: "host"
+    ports:
+      - "7262:8000"
     depends_on:
       - redis
       - db
@@ -10,6 +11,10 @@ services:
       - SERVICE_NAME=web
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
 
   celery_worker:
     build: .
