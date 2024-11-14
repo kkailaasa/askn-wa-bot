@@ -2,6 +2,7 @@ import urllib3
 from typing import Dict
 import logging
 from urllib.parse import urlparse
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ class HTTPClientPool:
             self.initialized = True
             self._pools = {}
 
-    def get_pool(self, host: str, maxsize: int = 10, retries: int = 3) -> urllib3.connectionpool.HTTPConnectionPool:
+    def get_pool(self, host: str, maxsize: int = 10, retries: int = 3, timeout: float = 10.0) -> urllib3.connectionpool.HTTPConnectionPool:
         try:
             if host not in self._pools:
                 logger.debug(f"Creating new connection pool for {host}")
@@ -45,7 +46,7 @@ class HTTPClientPool:
                     host=clean_host,
                     maxsize=maxsize,
                     retries=retry,
-                    timeout=urllib3.Timeout(connect=2.0, read=7.0),
+                    timeout=urllib3.Timeout(connect=timeout, read=timeout),
                     block=True
                 )
 
@@ -80,7 +81,12 @@ class HTTPClientPool:
             return pool.request(method, path, **kwargs)
         except Exception as e:
             logger.error(f"Request error for {host}: {str(e)}")
-            raise
+            # Retry the request once if it fails
+            try:
+                return pool.request(method, path, **kwargs)
+            except Exception as e:
+                logger.error(f"Retry request error for {host}: {str(e)}")
+                raise
 
     def close_pool(self, host: str):
         if host in self._pools:
