@@ -38,18 +38,69 @@ app.include_router(router)
 @app.exception_handler(KeycloakOperationError)
 async def keycloak_exception_handler(request: Request, exc: KeycloakOperationError):
     logger.error(f"Keycloak operation failed: {str(exc)}")
+    log_error(
+        error_type="KeycloakOperationError",
+        error_message=str(exc),
+        metadata={
+            "path": str(request.url),
+            "method": request.method,
+            "headers": dict(request.headers)
+        }
+    )
     return JSONResponse(
         status_code=500,
         content={"message": "An error occurred while processing your request."},
     )
 
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception: {str(exc)}")
+    error_details = {
+        "path": str(request.url),
+        "method": request.method,
+        "headers": dict(request.headers)
+    }
+    
+    try:
+        # Try to get request body if possible
+        body = await request.body()
+        if body:
+            error_details["body"] = body.decode()
+    except Exception:
+        pass
+
+    # Log to database
+    log_error(
+        error_type=type(exc).__name__,
+        error_message=str(exc),
+        metadata=error_details
+    )
+    
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=500,
         content={"message": "An unexpected error occurred."},
     )
+
+# Custom logging handler for uncaught exceptions
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+
+    logger.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+    
+    # Log to database
+    try:
+        log_error(
+            error_type=exc_type.__name__,
+            error_message=str(exc_value),
+            metadata={"traceback": str(exc_traceback)}
+        )
+    except Exception as e:
+        logger.error(f"Failed to log error to database: {str(e)}")
+
+sys.excepthook = handle_exception
 
 @app.get("/health")
 async def health_check():
