@@ -5,8 +5,8 @@ from typing import Dict
 import httpx
 import time
 import logging
-from models.load_balancer import LoadBalancerLog, NumberLoadStats
-from models.base import SessionLocal
+from db_scripts.load_balancer import LoadBalancerLog, NumberLoadStats
+from db_scripts.base import SessionLocal
 from core.config import settings
 
 router = APIRouter()
