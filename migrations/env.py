@@ -3,7 +3,7 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from alembic import context
 import os
-from models.base import Base
+from db_scripts.base import Base
 
 config = context.config
 target_metadata = Base.metadata
