@@ -1,9 +1,9 @@
 FROM python:3.10-slim
 
-# Install gosu and other dependencies
+# Install gosu, postgres client and other dependencies
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y gosu ; \
+    apt-get install -y gosu postgresql-client ; \
     rm -rf /var/lib/apt/lists/*; \
     gosu nobody true
 
