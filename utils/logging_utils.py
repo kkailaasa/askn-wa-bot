@@ -1,5 +1,5 @@
-from models.base import SessionLocal
-from models.logs import ConversationLog, ErrorLog
+from db_scripts.base import SessionLocal
+from db_scripts.logs import ConversationLog, ErrorLog
 import traceback
 import json
 from typing import Optional, Dict, Any
