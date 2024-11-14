@@ -1,10 +1,8 @@
 version: '3.8'
-
 services:
-  web:
+  bot:
     build: .
-    ports:
-      - "7262:8000"
+    network_mode: "host"
     depends_on:
       - redis
       - db
@@ -12,9 +10,6 @@ services:
       - SERVICE_NAME=web
     env_file:
       - .env
-    networks:
-      - dify-chandra_default
-      - default
 
   celery_worker:
     build: .
@@ -60,8 +55,6 @@ services:
       - default
 
 networks:
-  dify-chandra_default:
-    external: true
   default:
     driver: bridge
 
