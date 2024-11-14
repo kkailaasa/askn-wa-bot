@@ -12,6 +12,9 @@ services:
       - SERVICE_NAME=web
     env_file:
       - .env
+    networks:
+      - dify-chandra_default
+      - default
 
   celery_worker:
     build: .
@@ -23,6 +26,8 @@ services:
       - SERVICE_NAME=celery_worker
     env_file:
       - .env
+    networks:
+      - default
 
   celery_beat:
     build: .
@@ -34,12 +39,16 @@ services:
       - SERVICE_NAME=celery_beat
     env_file:
       - .env
+    networks:
+      - default
 
   redis:
     image: "redis:alpine"
     volumes:
       - ./data/redis_data:/data
     command: redis-server --appendonly yes
+    networks:
+      - default
 
   db:
     image: postgres:15-alpine
@@ -47,6 +56,14 @@ services:
       - ./data/postgres_data:/var/lib/postgresql/data
     env_file:
       - .env
+    networks:
+      - default
+
+networks:
+  dify-chandra_default:
+    external: true
+  default:
+    driver: bridge
 
 volumes:
   redis_data:
