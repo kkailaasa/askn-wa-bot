@@ -53,6 +53,6 @@ def get_redis_client():
 
 # utils/__init__.py
 from .redis_pool import get_redis_client, redis_pool
-from .twilio_validator import validate_twilio_request
+#from .twilio_validator import validate_twilio_request
 
-__all__ = ['get_redis_client', 'redis_pool', 'validate_twilio_request']
+__all__ = ['get_redis_client', 'redis_pool']

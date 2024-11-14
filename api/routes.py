@@ -21,7 +21,7 @@ from services.ecitizen_auth import (
 from keycloak.exceptions import KeycloakError
 from services.email_service import send_otp_email
 from services.auth import get_api_key
-from utils.twilio_validator import validate_twilio_request
+#from utils.twilio_validator import validate_twilio_request
 from utils.redis_helpers import is_rate_limited, get_remaining_limit
 from services import ChatService, MessagingService
 from pydantic import BaseModel, EmailStr, Field

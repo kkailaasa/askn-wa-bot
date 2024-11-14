@@ -14,6 +14,7 @@ class SecuritySettings(BaseSettings):
     TWILIO_ACCOUNT_SID: str
     TWILIO_AUTH_TOKEN: str
     TWILIO_NUMBER: str
+    TWILIO_NUMBER_2: str
     DIFY_KEY: str
     DIFY_URL: str
     KEYCLOAK_SERVER_URL: str
