@@ -85,47 +85,33 @@ def check_email(self, phone_number: str, email: str):
     logger.info(f"Checking email for phone number: {phone_number}")
     try:
         auth_service = EcitzenAuthService()
-        temp_data = auth_service.get_temp_data(phone_number)
-        if not temp_data:
-            raise Exception("Invalid request sequence")
-
         phone_user = auth_service.get_user_by_phone_or_username(phone_number)
         email_user = auth_service.get_user_by_email_or_username(email)
 
         if phone_user and email_user:
             # Both users exist - we need to merge them
             result = auth_service.merge_accounts(email_user, phone_user, email, phone_number)
-            auth_service.delete_temp_data(phone_number)
             return {
                 "message": "Accounts merged successfully",
                 "user": auth_service.format_user_response(result)
             }
         elif phone_user:
             result = auth_service.add_email_to_user(phone_user, email)
-            auth_service.delete_temp_data(phone_number)
             return {
                 "message": "Email added to existing account",
                 "user": auth_service.format_user_response(result)
             }
         elif email_user:
             result = auth_service.add_phone_to_user(email_user, phone_number)
-            auth_service.delete_temp_data(phone_number)
             return {
                 "message": "Phone attributes added to existing account",
-                "user": auth_service.format_user_response(result)
+                "user": auth_service.format_user_response(email_user)
             }
         else:
-            auth_service.store_temp_data(phone_number, {
-                **temp_data,
-                "email": email,
-                "phoneType": "whatsapp",
-                "phoneVerified": "yes",
-                "verificationRoute": "ngpt_wa"
-            })
             return {"message": "User not found", "next_step": "create_account"}
+
     except Exception as e:
         logger.error(f"Error checking email for phone number {phone_number}: {str(e)}")
-        # Retry task with exponential backoff
         retry_in = (self.request.retries + 1) * 60  # 60s, 120s, 180s
         raise self.retry(exc=e, countdown=retry_in)
 

@@ -75,7 +75,7 @@ async def handle_message(
 
     # Clean up the phone number format by removing WhatsApp prefix if present
     phone_number = From.replace("whatsapp:", "") if From.startswith("whatsapp:") else From
-    
+
     logger.debug(f"Formatted phone number: {phone_number}")
 
     # Check rate limiting
