@@ -31,20 +31,25 @@ def process_message(self, phone_number: str, message_body: str):
         chat_service = ChatService()
         messaging_service = MessagingService()
 
-        # Get or create a conversation
-        conversation_id = chat_service.get_conversation_id(phone_number)
+        # Check for "start new chat" command
+        if message_body.lower().strip() == "start new chat":
+            # Send original message to Dify but with no conversation_id to force new chat
+            response = chat_service.create_chat_message(
+                phone_number, 
+                message_body,
+                conversation_id=None
+            )
+        else:
+            # Regular flow - get existing conversation or create new one
+            conversation_id = chat_service.get_conversation_id(phone_number)
+            response = chat_service.create_chat_message(phone_number, message_body, conversation_id)
 
-        # Generate a response using Dify
-        response = chat_service.create_chat_message(phone_number, message_body, conversation_id)
-
-        # Send the response back to the user via Twilio
+        # Send Dify's response back to user
         messaging_service.send_message(phone_number, response)
-
         logger.info(f"Successfully processed and responded to message from {phone_number}")
     except Exception as e:
         logger.error(f"Error processing message from {phone_number}: {str(e)}")
-        # Retry task with exponential backoff
-        retry_in = (self.request.retries + 1) * 60  # 60s, 120s, 180s
+        retry_in = (self.request.retries + 1) * 60
         raise self.retry(exc=e, countdown=retry_in)
 
 
