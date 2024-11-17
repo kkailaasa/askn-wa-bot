@@ -9,6 +9,7 @@ from services import (
     sequence_manager,
     AccountCreationStep,
     email_service,
+    KeycloakOperationError
 )
 from utils.redis_pool import get_redis_client
 import time
