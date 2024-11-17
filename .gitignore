@@ -49,6 +49,7 @@ Thumbs.db
 .env
 .env.old
 example.curl
+alternate_responses_draft.txt
 
 # Project specific
 *.pid

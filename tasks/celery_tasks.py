@@ -62,32 +62,27 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND
 )
 
-# Complete configuration in one place
+# Configure Celery using settings
 celery_app.conf.update(
+    task_serializer=settings.CELERY_TASK_SERIALIZER,
+    result_serializer=settings.CELERY_RESULT_SERIALIZER,
+    accept_content=settings.CELERY_ACCEPT_CONTENT,
+    timezone=settings.CELERY_TIMEZONE,
+    enable_utc=settings.CELERY_ENABLE_UTC,
+    task_track_started=settings.CELERY_TASK_TRACK_STARTED,
+    task_time_limit=settings.CELERY_TASK_TIME_LIMIT,
+    task_soft_time_limit=settings.CELERY_TASK_SOFT_TIME_LIMIT,
+    worker_prefetch_multiplier=settings.CELERY_WORKER_PREFETCH_MULTIPLIER,
+    worker_max_tasks_per_child=settings.CELERY_WORKER_MAX_TASKS_PER_CHILD,
+    worker_max_memory_per_child=settings.CELERY_WORKER_MAX_MEMORY_PER_CHILD,
+
     # Queue configuration
     task_queues=(
         Queue('high', routing_key='high'),
         Queue('default', routing_key='default'),
         Queue('low', routing_key='low'),
-        Queue('dead_letter', routing_key='dead_letter')
     ),
 
-    # Basic settings
-    broker_connection_retry_on_startup=True,
-    task_serializer='json',
-    accept_content=['json'],
-    result_serializer='json',
-    timezone='UTC',
-    enable_utc=True,
-
-    # Task execution settings
-    task_acks_late=True,
-    task_reject_on_worker_lost=True,
-    task_time_limit=300,  # 5 minutes
-    task_soft_time_limit=240,  # 4 minutes
-    worker_prefetch_multiplier=1,  # Process one task at a time
-
-    # Queue settings
     task_default_queue='default',
 
     # Task routing
@@ -98,8 +93,6 @@ celery_app.conf.update(
         'tasks.celery_tasks.create_account': {'queue': 'default'},
         'tasks.celery_tasks.send_otp_email_task': {'queue': 'high'},
         'tasks.celery_tasks.verify_email_task': {'queue': 'default'},
-        'celery.task.exceptions.Reject': {'queue': 'dead_letter'},
-        'tasks.celery_tasks.*': {'queue': 'dead_letter', 'routing_key': 'dead_letter'}
     }
 )
 
@@ -153,6 +146,7 @@ def run_async(coroutine):
     queue='high',
     rate_limit='100/s'
 )
+
 def process_message(self, phone_number: str, message_body: str) -> Dict[str, Any]:
     """Process incoming messages with enhanced error handling"""
     logger.info("processing_message", phone_number=phone_number)

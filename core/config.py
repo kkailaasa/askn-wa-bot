@@ -144,6 +144,23 @@ class Settings(BaseSettings):
     EMAIL_FROM_NAME: str
     EMAIL_FROM: str
 
+    # Add Celery Configuration
+    CELERY_BROKER_URL: str = "redis://redis:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://redis:6379/0"
+
+    # Celery Task Settings
+    CELERY_TASK_SERIALIZER: str = "json"
+    CELERY_RESULT_SERIALIZER: str = "json"
+    CELERY_ACCEPT_CONTENT: List[str] = ["json"]
+    CELERY_TIMEZONE: str = "UTC"
+    CELERY_ENABLE_UTC: bool = True
+    CELERY_TASK_TRACK_STARTED: bool = True
+    CELERY_TASK_TIME_LIMIT: int = 30 * 60  # 30 minutes
+    CELERY_TASK_SOFT_TIME_LIMIT: int = 25 * 60  # 25 minutes
+    CELERY_WORKER_PREFETCH_MULTIPLIER: int = 1
+    CELERY_WORKER_MAX_TASKS_PER_CHILD: int = 50
+    CELERY_WORKER_MAX_MEMORY_PER_CHILD: int = 100_000  # 100MB
+
     # Enhanced Error Handling Settings
     ERROR_RETRY_ATTEMPTS: int = 3
     ERROR_RETRY_DELAY: float = 0.1
@@ -240,6 +257,13 @@ class TimeoutSettings(BaseSettings):
 
         # Parse CORS origins
         self.CORS_ALLOWED_ORIGINS = self._parse_cors_origins()
+
+        # Set Celery URLs if not provided
+        if not self.CELERY_BROKER_URL:
+            self.CELERY_BROKER_URL = f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
+        if not self.CELERY_RESULT_BACKEND:
+            self.CELERY_RESULT_BACKEND = self.CELERY_BROKER_URL
+
 
     def _validate_settings(self) -> None:
         """Validate critical settings"""
