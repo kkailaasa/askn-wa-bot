@@ -27,3 +27,4 @@ psutil
 jinja2
 aiofiles
 redis[hiredis]>=4.2.0
+asyncpg==0.29.0

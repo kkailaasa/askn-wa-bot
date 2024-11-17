@@ -359,18 +359,22 @@ async def sequence_exception_handler(request: Request, exc: SequenceException):
         error_context=error_context.dict()
     )
 
-    await log_error(
-        error_type="SequenceException",
-        error_message=str(exc),
-        metadata=error_context.dict()
-    )
+    try:
+        await log_error(
+            error_type="SequenceException",
+            error_message=str(exc),
+            metadata=error_context.dict()
+        )
+    except Exception as log_err:
+        logger.error(f"Failed to log error: {str(log_err)}")
 
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "error": exc.detail,
+            "error": str(exc),
             "request_id": request.headers.get("X-Request-ID")
-        }
+        },
+        headers=getattr(exc, 'headers', None)
     )
 
 @app.exception_handler(Exception)

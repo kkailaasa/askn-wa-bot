@@ -4,7 +4,7 @@ import traceback
 import json
 from typing import Optional, Dict, Any
 
-def log_conversation(
+async def log_conversation(
     phone_number: str,
     message: str,
     response: str,
@@ -21,14 +21,14 @@ def log_conversation(
             metadata=metadata
         )
         db.add(log)
-        db.commit()
+        await db.commit()
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise e
     finally:
-        db.close()
+        await db.close()
 
-def log_error(
+async def log_error(
     error_type: str,
     error_message: str,
     conversation_id: Optional[str] = None,
@@ -46,9 +46,9 @@ def log_error(
             metadata=metadata
         )
         db.add(log)
-        db.commit()
+        await db.commit()
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise e
     finally:
-        db.close()
+        await db.close()

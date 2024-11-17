@@ -234,7 +234,7 @@ async def handle_message(
 ):
     """Handle incoming WhatsApp messages"""
     phone_number = From.replace("whatsapp:", "") if From.startswith("whatsapp:") else From
-    
+
     # Rate limiting check
     is_limited, reset_time = await get_rate_limit_info(request, phone_number)
     if is_limited:
@@ -247,7 +247,7 @@ async def handle_message(
         )
 
     chat_service = ChatService()
-    
+
     # Get conversation context and process message
     try:
         conversation_id = await safe_operation_execution(
@@ -256,7 +256,7 @@ async def handle_message(
             settings.CHAT_TIMEOUT,
             phone_number=phone_number
         )
-        
+
         response = await safe_operation_execution(
             "create_message",
             chat_service.create_chat_message,
@@ -275,7 +275,7 @@ async def handle_message(
                 operation=response["required_operation"],
                 data=response.get("operation_data", {})
             )
-            
+
             response = await safe_operation_execution(
                 "create_message_with_auth",
                 chat_service.create_chat_message,
@@ -931,6 +931,7 @@ async def get_user_info_endpoint(
     request: Request,
     user_request: UserInfoRequest,
     background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_dependency),
     api_key: str = Depends(verify_api_key)
 ):
     """Get comprehensive user information based on email or phone number"""
@@ -976,24 +977,25 @@ async def get_user_info_endpoint(
             async with asyncio.timeout(settings.AUTH_TIMEOUT):
                 user = await safe_operation_execution(
                     "get_user_info",
-                    auth_service.get_user_by_email_or_username if user_request.identifier_type == "email" 
+                    auth_service.get_user_by_email_or_username if user_request.identifier_type == "email"
                     else auth_service.get_user_by_phone_or_username,
                     settings.AUTH_TIMEOUT,
                     identifier=user_request.identifier
                 )
 
                 if not user:
-                    # Log the not found case
-                    background_tasks.add_task(
-                        log_conversation,
-                        phone_number=user_request.identifier if user_request.identifier_type == "phone" else None,
-                        message=f"User lookup failed for {user_request.identifier}",
-                        response="Not Found",
-                        metadata={
-                            "identifier_type": user_request.identifier_type,
-                            "lookup_timestamp": datetime.utcnow().isoformat()
-                        }
-                    )
+                    # Log the not found case using async logging
+                    async with get_db() as log_db:
+                        await log_conversation(
+                            db=log_db,
+                            phone_number=user_request.identifier if user_request.identifier_type == "phone" else None,
+                            message=f"User lookup failed for {user_request.identifier}",
+                            response="Not Found",
+                            metadata={
+                                "identifier_type": user_request.identifier_type,
+                                "lookup_timestamp": datetime.utcnow().isoformat()
+                            }
+                        )
 
                     return UserInfoResponse(
                         message="User not found",
@@ -1030,18 +1032,19 @@ async def get_user_info_endpoint(
                     }
                 )
 
-                # Log successful retrieval
-                background_tasks.add_task(
-                    log_conversation,
-                    phone_number=user_attributes.phoneNumber,
-                    message=f"User info retrieved for {user_request.identifier}",
-                    response="Success",
-                    metadata={
-                        "identifier_type": user_request.identifier_type,
-                        "lookup_timestamp": datetime.utcnow().isoformat(),
-                        "user_id": user.get("id")
-                    }
-                )
+                # Log successful retrieval using async logging
+                async with get_db() as log_db:
+                    await log_conversation(
+                        db=log_db,
+                        phone_number=user_attributes.phoneNumber,
+                        message=f"User info retrieved for {user_request.identifier}",
+                        response="Success",
+                        metadata={
+                            "identifier_type": user_request.identifier_type,
+                            "lookup_timestamp": datetime.utcnow().isoformat(),
+                            "user_id": user.get("id")
+                        }
+                    )
 
                 # Prepare and return response
                 response = UserInfoResponse(
@@ -1084,19 +1087,21 @@ async def get_user_info_endpoint(
                     "error": str(e)
                 }
             )
-            
-            # Store error context for potential recovery
-            background_tasks.add_task(
-                store_error_context,
-                user_request.identifier,
-                {
-                    "operation": "get_user_info",
-                    "error": str(e),
-                    "identifier_type": user_request.identifier_type,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            )
-            
+
+            # Store error context using async logging
+            async with get_db() as error_db:
+                await log_error(
+                    db=error_db,
+                    error_type="KeycloakError",
+                    error_message=str(e),
+                    metadata={
+                        "operation": "get_user_info",
+                        "identifier": user_request.identifier,
+                        "identifier_type": user_request.identifier_type,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                )
+
             raise SequenceException(
                 error_code=SequenceErrorCode.KEYCLOAK_ERROR,
                 message="Failed to retrieve user information",
@@ -1109,9 +1114,32 @@ async def get_user_info_endpoint(
             "X-Error-Code": e.error_code,
             "X-Error-Time": datetime.utcnow().isoformat()
         }
+        # Log sequence exception
+        async with get_db() as error_db:
+            await log_error(
+                db=error_db,
+                error_type="SequenceException",
+                error_message=str(e),
+                metadata={
+                    "error_code": e.error_code,
+                    "identifier": user_request.identifier,
+                    "identifier_type": user_request.identifier_type
+                }
+            )
         raise
 
     except Exception as e:
+        # Log unexpected exception
+        async with get_db() as error_db:
+            await log_error(
+                db=error_db,
+                error_type="UnexpectedError",
+                error_message=str(e),
+                metadata={
+                    "identifier": user_request.identifier,
+                    "identifier_type": user_request.identifier_type
+                }
+            )
         raise SequenceException(
             error_code=SequenceErrorCode.SYSTEM_ERROR,
             message="An unexpected error occurred while retrieving user information",
@@ -1182,7 +1210,7 @@ async def check_rate_limit(request: Request, rate_limit_type: str) -> None:
         rate_limit_type=rate_limit_type,
         settings=settings
     )
-    
+
     if is_limited:
         raise SequenceException(
             error_code=SequenceErrorCode.RATE_LIMIT,
