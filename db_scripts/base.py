@@ -5,6 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from core.config import settings
 from contextlib import asynccontextmanager
+from typing import AsyncGenerator, Dict, Any, Optional
 
 # Convert the standard DB URL to async format
 def get_async_db_url(url: str) -> str:
@@ -55,10 +56,20 @@ async def get_db_dependency() -> AsyncGenerator[AsyncSession, None]:
     async with get_db() as session:
         yield session
 
+# For backwards compatibility with Celery tasks
+def get_sync_db():
+    """Sync database session for legacy code"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 __all__ = [
     'Base',
     'get_db',
     'get_db_dependency',
+    'get_sync_db',
     'AsyncSessionLocal',
     'SessionLocal',
     'engine'
