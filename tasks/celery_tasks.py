@@ -2,6 +2,10 @@ from celery import Celery, Task
 from kombu import Queue
 from core.config import settings
 import structlog
+from typing import Dict, Any, Optional, List
+import asyncio
+from datetime import datetime
+from core.sequence_errors import SequenceException, SequenceErrorCode
 from services import (
     ChatService,
     MessagingService,
