@@ -151,6 +151,47 @@ class Settings(BaseSettings):
             return value
         return ""
 
+    @property
+    def rate_limit_config(self) -> Dict[str, Dict[str, Any]]:
+        """Enhanced rate limit configuration"""
+        return {
+            # Sequence Operations
+            "sequence_operations": {
+                "limit": self.RATE_LIMITS.SEQUENCE_OPERATIONS_LIMIT,
+                "period": self.RATE_LIMITS.SEQUENCE_OPERATIONS_PERIOD,
+                "key_pattern": "rate_limit:sequence:{identifier}",
+                "identifier_type": "identifier"
+            },
+            # Message Rate Limits
+            "message": {
+                "limit": self.MESSAGE_RATE_LIMIT,
+                "period": self.MESSAGE_RATE_WINDOW,
+                "key_pattern": "rate_limit:message:{phone_number}",
+                "identifier_type": "phone_number"
+            },
+            # Account Creation Rate Limits
+            "create_user": {
+                "limit": self.RATE_LIMIT_CREATE_USER_LIMIT,
+                "period": self.RATE_LIMIT_CREATE_USER_PERIOD,
+                "key_pattern": "rate_limit:create_user:{phone_number}",
+                "identifier_type": "phone_number"
+            },
+            # Email Management Rate Limits
+            "add_email": {
+                "limit": self.RATE_LIMIT_ADD_EMAIL_LIMIT,
+                "period": self.RATE_LIMIT_ADD_EMAIL_PERIOD,
+                "key_pattern": "rate_limit:add_email:{email}",
+                "identifier_type": "email"
+            },
+            # Step Transition Rate Limits
+            "step_transition": {
+                "limit": self.RATE_LIMITS.STEP_TRANSITION_LIMIT,
+                "period": self.RATE_LIMITS.STEP_TRANSITION_PERIOD,
+                "key_pattern": "rate_limit:step:{identifier}",
+                "identifier_type": "identifier"
+            }
+        }
+
 class TimeoutSettings(BaseSettings):
     """Timeout configurations"""
     CHAT_TIMEOUT: int = 15
@@ -235,47 +276,6 @@ class TimeoutSettings(BaseSettings):
         if not self.CORS_ALLOWED_ORIGINS:
             return []
         return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
-
-    @property
-    def rate_limit_config(self) -> Dict[str, Dict[str, Any]]:
-        """Enhanced rate limit configuration"""
-        return {
-            # Sequence Operations
-            "sequence_operations": {
-                "limit": self.RATE_LIMITS.SEQUENCE_OPERATIONS_LIMIT,
-                "period": self.RATE_LIMITS.SEQUENCE_OPERATIONS_PERIOD,
-                "key_pattern": "rate_limit:sequence:{identifier}",
-                "identifier_type": "identifier"
-            },
-            # Message Rate Limits
-            "message": {
-                "limit": self.MESSAGE_RATE_LIMIT,
-                "period": self.MESSAGE_RATE_WINDOW,
-                "key_pattern": "rate_limit:message:{phone_number}",
-                "identifier_type": "phone_number"
-            },
-            # Account Creation Rate Limits
-            "create_user": {
-                "limit": self.RATE_LIMIT_CREATE_USER_LIMIT,
-                "period": self.RATE_LIMIT_CREATE_USER_PERIOD,
-                "key_pattern": "rate_limit:create_user:{phone_number}",
-                "identifier_type": "phone_number"
-            },
-            # Email Management Rate Limits
-            "add_email": {
-                "limit": self.RATE_LIMIT_ADD_EMAIL_LIMIT,
-                "period": self.RATE_LIMIT_ADD_EMAIL_PERIOD,
-                "key_pattern": "rate_limit:add_email:{email}",
-                "identifier_type": "email"
-            },
-            # Step Transition Rate Limits
-            "step_transition": {
-                "limit": self.RATE_LIMITS.STEP_TRANSITION_LIMIT,
-                "period": self.RATE_LIMITS.STEP_TRANSITION_PERIOD,
-                "key_pattern": "rate_limit:step:{identifier}",
-                "identifier_type": "identifier"
-            }
-        }
 
 # Initialize settings
 try:
