@@ -17,22 +17,21 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Create required directories
 RUN mkdir -p logs temp templates
 
+# Copy entrypoint script first and make it executable
+COPY entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Copy the rest of the application
 COPY . .
 
-# Create a non-root user
-RUN adduser --disabled-password --gecos '' appuser
-
-# Set ownership for application directories
-RUN chown -R appuser:appuser /app \
-    && chmod +x /usr/local/bin/entrypoint.sh
+# Create a non-root user and set ownership
+RUN adduser --disabled-password --gecos '' appuser \
+    && chown -R appuser:appuser /app
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Copy and set up entrypoint
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # Default command (will be overridden by docker-compose for celery services)
