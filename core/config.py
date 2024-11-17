@@ -139,6 +139,11 @@ class Settings(BaseSettings):
     DB_CONNECTION_RETRIES: int = 3
     DB_RETRY_DELAY: float = 0.1
 
+    # Sendgrid Configuration
+    SENDGRID_API_KEY: str
+    EMAIL_FROM_NAME: str
+    EMAIL_FROM: str
+
     # Enhanced Error Handling Settings
     ERROR_RETRY_ATTEMPTS: int = 3
     ERROR_RETRY_DELAY: float = 0.1
