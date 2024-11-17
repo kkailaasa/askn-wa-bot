@@ -99,18 +99,18 @@ class MessagingService:
         """Format phone number with better validation."""
         if not phone_number:
             raise ValueError("Phone number cannot be empty")
-            
+
         # Remove all non-digit characters except +
         cleaned = re.sub(r'[^\d+]', '', phone_number.strip())
-        
+
         # Ensure it starts with + if it doesn't
         if not cleaned.startswith('+'):
             cleaned = f"+{cleaned}"
-            
+
         # Validate length
         if len(re.sub(r'[^\d]', '', cleaned)) < 10:
             raise ValueError("Phone number too short")
-            
+
         if add_whatsapp:
             return f"whatsapp:{cleaned}"
         return cleaned
