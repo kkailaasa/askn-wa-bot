@@ -12,13 +12,6 @@ from services import (
 )
 
 from utils.redis_pool import get_redis_client
-import time
-import asyncio
-from typing import Dict, Any, Optional, Union
-from datetime import datetime
-import json
-from fastapi import HTTPException
-from core.sequence_errors import SequenceException, SequenceErrorCode
 from celery.signals import (
     task_prerun,
     task_postrun,
@@ -31,21 +24,6 @@ from celery.signals import (
 
 logger = structlog.get_logger(__name__)
 redis_client = get_redis_client()
-
-celery_app.conf.task_queues = (
-    Queue('high', routing_key='high'),
-    Queue('default', routing_key='default'),
-    Queue('low', routing_key='low'),
-    Queue('dead_letter', routing_key='dead_letter')  # Add this line
-)
-
-celery_app.conf.task_reject_on_worker_lost = True
-celery_app.conf.task_acks_late = True
-
-celery_app.conf.task_routes = {
-    'celery.task.exceptions.Reject': {'queue': 'dead_letter'},
-    'tasks.celery_tasks.*': {'queue': 'dead_letter', 'routing_key': 'dead_letter'}
-}
 
 class BaseTaskWithRetry(Task):
     autoretry_for = (Exception,)
@@ -77,38 +55,51 @@ class BaseTaskWithRetry(Task):
             kwargs=kwargs
         )
 
-# Initialize Celery with better defaults
+# Single Celery app initialization with all configurations
 celery_app = Celery(
     'tasks',
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND
 )
 
+# Complete configuration in one place
 celery_app.conf.update(
+    # Queue configuration
+    task_queues=(
+        Queue('high', routing_key='high'),
+        Queue('default', routing_key='default'),
+        Queue('low', routing_key='low'),
+        Queue('dead_letter', routing_key='dead_letter')
+    ),
+
+    # Basic settings
     broker_connection_retry_on_startup=True,
     task_serializer='json',
     accept_content=['json'],
     result_serializer='json',
     timezone='UTC',
     enable_utc=True,
+
+    # Task execution settings
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     task_time_limit=300,  # 5 minutes
     task_soft_time_limit=240,  # 4 minutes
     worker_prefetch_multiplier=1,  # Process one task at a time
+
+    # Queue settings
     task_default_queue='default',
-    task_queues={
-        'high': {'routing_key': 'high'},
-        'default': {'routing_key': 'default'},
-        'low': {'routing_key': 'low'}
-    },
+
+    # Task routing
     task_routes={
         'tasks.celery_tasks.process_message': {'queue': 'high'},
         'tasks.celery_tasks.check_phone': {'queue': 'default'},
         'tasks.celery_tasks.check_email': {'queue': 'default'},
         'tasks.celery_tasks.create_account': {'queue': 'default'},
         'tasks.celery_tasks.send_otp_email_task': {'queue': 'high'},
-        'tasks.celery_tasks.verify_email_task': {'queue': 'default'}
+        'tasks.celery_tasks.verify_email_task': {'queue': 'default'},
+        'celery.task.exceptions.Reject': {'queue': 'dead_letter'},
+        'tasks.celery_tasks.*': {'queue': 'dead_letter', 'routing_key': 'dead_letter'}
     }
 )
 

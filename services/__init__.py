@@ -2,8 +2,8 @@
 from .rate_limiter import RateLimiter
 from .dify_chat import ChatService
 from .twilio_auth import MessagingService
-from .rate_limiter import RateLimiter
 from .email_service import EmailService
+from .ecitizen_auth import ECitizenAuthService, auth_service
 
 from .ecitizen_auth import (
     get_user_by_email_or_username,
@@ -50,27 +50,16 @@ __all__ = [
     'MessagingService',
     'EcitzenAuthService',
 
-    # Sequence Management
+    # Sequence Management__all__ = [
+    'ChatService',
+    'MessagingService',
+    'ECitizenAuthService',
+    'auth_service',
+    'EmailService',
     'sequence_manager',
     'AccountCreationStep',
     'SequenceManager',
     'TransactionManager',
     'STEP_VALIDATORS',
-
-    # Auth Related
-    'get_user_by_email_or_username',
-    'get_user_by_phone_or_username',
-    'create_user_with_phone',
-    'verify_email',
-    'generate_otp',
-    'store_otp',
-    'verify_otp',
-    'store_temp_data',
-    'get_temp_data',
-    'delete_temp_data'
-
-    # Data Management
-    'store_temp_data',
-    'get_temp_data',
-    'delete_temp_data'
+    'RateLimiter'
 ]

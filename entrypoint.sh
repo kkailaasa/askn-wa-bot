@@ -9,10 +9,16 @@ done
 
 >&2 echo "Postgres is up - executing command"
 
+# Create required directories if they don't exist
+mkdir -p logs temp templates
+
+# Set proper permissions
+chown -R appuser:appuser /app/logs /app/temp /app/templates
+
 # Only run migrations from the web service
 if [ "$SERVICE_NAME" = "web" ]; then
     echo "Running migrations..."
-    alembic upgrade head
+    gosu appuser alembic upgrade head
 fi
 
 # Run the command as appuser

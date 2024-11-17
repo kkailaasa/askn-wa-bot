@@ -14,14 +14,18 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create required directories
+RUN mkdir -p logs temp templates
+
 # Copy the rest of the application
 COPY . .
 
 # Create a non-root user
 RUN adduser --disabled-password --gecos '' appuser
 
-# Set ownership
-RUN chown -R appuser:appuser /app
+# Set ownership for application directories
+RUN chown -R appuser:appuser /app \
+    && chmod +x /usr/local/bin/entrypoint.sh
 
 # Set environment variables
 ENV PYTHONPATH=/app
@@ -29,11 +33,7 @@ ENV PYTHONUNBUFFERED=1
 
 # Copy and set up entrypoint
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# Default command
+# Default command (will be overridden by docker-compose for celery services)
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1

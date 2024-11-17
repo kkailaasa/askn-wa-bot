@@ -9,6 +9,7 @@ services:
       - db
     environment:
       - SERVICE_NAME=web
+      - PYTHONPATH=/app
     env_file:
       - .env
     extra_hosts:
@@ -24,6 +25,8 @@ services:
       - db
     environment:
       - SERVICE_NAME=celery_worker
+      - PYTHONPATH=/app
+      - C_FORCE_ROOT=true
     env_file:
       - .env
     extra_hosts:
@@ -33,12 +36,14 @@ services:
 
   celery_beat:
     build: .
-    command: celery -A tasks beat --loglevel=info
+    command: celery -A tasks.celery_tasks beat --loglevel=info
     depends_on:
       - redis
       - db
     environment:
       - SERVICE_NAME=celery_beat
+      - PYTHONPATH=/app
+      - C_FORCE_ROOT=true
     env_file:
       - .env
     extra_hosts:
@@ -60,7 +65,6 @@ services:
       - ./data/postgres_data:/var/lib/postgresql/data
     env_file:
       - .env
-
     networks:
       - default
 
