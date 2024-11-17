@@ -1,19 +1,14 @@
 # utils/__init__.py
 
 from utils.redis_pool import get_redis_client
-redis_client = get_redis_client()
+redis_sync_client = get_redis_client()  # For any code that still needs sync client
 
 from .redis_helpers import (
-    redis_client,
+    redis_helper,  # Instead of redis_client
     rate_limiter,
-    RedisLock,
-    RedisTransaction,
-    is_rate_limited,
-    get_remaining_limit,
-    cache,
-    QueueManager,
+    AsyncRedisLock,
     cleanup_expired_keys,
-    CacheManager
+    cache
 )
 
 from .operation_helpers import (
@@ -39,15 +34,12 @@ from .validators import (
 
 __all__ = [
     # Redis Helpers
-    'redis_client',
+    'redis_helper',
+    'redis_sync_client',
     'rate_limiter',
-    'RedisLock',
-    'RedisTransaction',
-    'is_rate_limited',
-    'get_remaining_limit',
+    'AsyncRedisLock',
+    'cleanup_expired_keys',
     'cache',
-    'QueueManager',
-    'cleanup_expired_keys'
 
     # Operation Helpers
     'safe_operation_execution',
