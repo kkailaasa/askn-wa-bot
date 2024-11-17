@@ -6,7 +6,6 @@ from .rate_limiter import RateLimiter
 from .email_service import EmailService
 
 from .ecitizen_auth import (
-    KeycloakOperationError,
     create_keycloak_admin,
     get_user_by_email_or_username,
     get_user_by_phone_or_username,
@@ -61,7 +60,6 @@ __all__ = [
 
     # Auth Related
     'RateLimiter',
-    'KeycloakOperationError',
     'create_keycloak_admin',
     'get_user_by_email_or_username',
     'get_user_by_phone_or_username',
