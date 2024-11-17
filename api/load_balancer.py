@@ -18,7 +18,7 @@ class HybridLoadBalancer:
     def __init__(self):
         self.redis_helper = redis_helper
         self.current_index_key = "lb:current_index"
-        
+
         # Load settings
         self.config = settings.load_balancer_config
         self.max_messages = settings.MAX_MESSAGES_PER_SECOND
@@ -210,34 +210,47 @@ async def signup_endpoint(request: Request, background_tasks: BackgroundTasks):
 
         background_tasks.add_task(load_balancer.increment_number_load, selected_number)
 
-        # Log the redirect
+        # Log the redirect with enhanced client information
         db = SessionLocal()
         try:
+            headers_dict = dict(request.headers.items())
+            client_info = {
+                "real_ip": request.client.host,
+                "cf_connecting_ip": headers_dict.get("cf-connecting-ip"),
+                "cf_ray": headers_dict.get("cf-ray"),
+                "x_forwarded_for": headers_dict.get("x-forwarded-for"),
+                "x_forwarded_proto": headers_dict.get("x-forwarded-proto"),
+                "user_agent": headers_dict.get("user-agent")
+            }
+
             log = LoadBalancerLog(
-                client_ip=request.client.host,
-                user_agent=request.headers.get("user-agent"),
-                referrer=request.headers.get("referer"),
+                client_ip=request.client.host,  # Real IP from Cloudflare
+                cf_country=headers_dict.get("cf-ipcountry"),  # New country column
+                user_agent=headers_dict.get("user-agent"),
+                referrer=headers_dict.get("referer"),
                 assigned_number=selected_number,
                 request_timestamp=datetime.utcnow(),
                 additional_data={
-                    "headers": dict(request.headers),
+                    "headers": client_info,
                     "query_params": dict(request.query_params),
-                    "current_loads": current_loads
+                    "current_loads": current_loads,
+                    "cf_ray": headers_dict.get("cf-ray"),
+                    "protocol": headers_dict.get("x-forwarded-proto", "https")
                 }
             )
             db.add(log)
             db.commit()
 
-            # Format WhatsApp URL
-            wa_number = selected_number.replace("whatsapp:", "").replace("+", "").strip()
-            redirect_url = f"https://wa.me/{wa_number}"
-
             logger.info(
                 "signup_redirect",
                 assigned_number=selected_number,
-                client_ip=request.client.host,
-                redirect_url=redirect_url
+                client_info=client_info,
+                country=log.cf_country,
+                redirect_url=f"https://wa.me/{selected_number.replace('whatsapp:', '').replace('+', '').strip()}"
             )
+
+            wa_number = selected_number.replace("whatsapp:", "").replace("+", "").strip()
+            redirect_url = f"https://wa.me/{wa_number}"
 
             return RedirectResponse(url=redirect_url)
 
@@ -246,6 +259,9 @@ async def signup_endpoint(request: Request, background_tasks: BackgroundTasks):
             logger.error(
                 "signup_db_error",
                 error=str(e),
+                client_ip=request.client.host,
+                country=headers_dict.get("cf-ipcountry"),
+                cf_ray=headers_dict.get("cf-ray"),
                 exc_info=True
             )
             raise
@@ -256,6 +272,9 @@ async def signup_endpoint(request: Request, background_tasks: BackgroundTasks):
         logger.error(
             "signup_failed",
             error=str(e),
+            client_ip=request.client.host,
+            country=request.headers.get("cf-ipcountry"),
+            cf_ray=request.headers.get("cf-ray"),
             exc_info=True
         )
         return JSONResponse(
