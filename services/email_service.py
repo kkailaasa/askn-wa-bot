@@ -1,18 +1,17 @@
+# services/email_service.py
+
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email, To, Content, HtmlContent, Attachment, FileContent, FileName, FileType, Disposition
+from sendgrid.helpers.mail import Mail, Email, To, Content, HtmlContent
 from core.config import settings
-import logging
 import structlog
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Union
-import base64
+from typing import Dict, Any, Optional
 import json
 import asyncio
 from utils.redis_helpers import AsyncRedisLock, AsyncCache
 from core.sequence_errors import SequenceException, SequenceErrorCode
-import jinja2
 import aiofiles
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -20,102 +19,11 @@ import re
 
 logger = structlog.get_logger(__name__)
 
-class EmailTemplateManager:
-    """Manages email templates with caching"""
-    def __init__(self, template_dir: str):
-        self.template_dir = template_dir
-        self.cache_prefix = "email:template:"
-        self.env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(template_dir),
-            autoescape=True,
-            enable_async=True
-        )
-
-    async def get_template(self, template_name: str) -> str:
-        """Get template with caching"""
-        cache_key = f"{self.cache_prefix}{template_name}"
-
-        # Try cache first
-        cached = await AsyncCache().get(cache_key)
-        if cached:
-            return cached
-
-        # Load template
-        try:
-            template_path = os.path.join(self.template_dir, template_name)
-            async with aiofiles.open(template_path, mode='r') as f:
-                content = await f.read()
-
-            # Cache template
-            await AsyncCache().set(cache_key, content, expiry=3600)
-            return content
-
-        except Exception as e:
-            logger.error(
-                "template_load_failed",
-                template=template_name,
-                error=str(e)
-            )
-            raise SequenceException(
-                error_code=SequenceErrorCode.SYSTEM_ERROR,
-                message=f"Failed to load email template: {template_name}"
-            )
-
-    async def render_template(
-        self,
-        template_name: str,
-        context: Dict[str, Any]
-    ) -> str:
-        """Render template with context"""
-        try:
-            template = self.env.get_template(template_name)
-            return await template.render_async(**context)
-        except Exception as e:
-            logger.error(
-                "template_render_failed",
-                template=template_name,
-                error=str(e)
-            )
-            raise SequenceException(
-                error_code=SequenceErrorCode.SYSTEM_ERROR,
-                message="Failed to render email template"
-            )
-
-class EmailDeliveryTracker:
-    """Tracks email delivery status and retries"""
-    def __init__(self):
-        self.cache_prefix = "email:delivery:"
-
-    async def track_attempt(
-        self,
-        email: str,
-        message_id: str,
-        status: str,
-        details: Optional[Dict[str, Any]] = None
-    ) -> None:
-        """Track delivery attempt"""
-        key = f"{self.cache_prefix}{message_id}"
-        data = {
-            "email": email,
-            "status": status,
-            "timestamp": datetime.utcnow().isoformat(),
-            "details": details or {}
-        }
-        await AsyncCache().set(key, json.dumps(data), expiry=86400)  # 24 hours
-
-    async def get_status(self, message_id: str) -> Optional[Dict[str, Any]]:
-        """Get delivery status"""
-        key = f"{self.cache_prefix}{message_id}"
-        data = await AsyncCache().get(key)
-        return json.loads(data) if data else None
-
 class EmailService:
     """Enhanced email service with improved error handling and features"""
     def __init__(self):
         self.project_root = self._get_project_root()
         self.template_dir = os.path.join(self.project_root, "templates")
-        self.template_manager = EmailTemplateManager(self.template_dir)
-        self.delivery_tracker = EmailDeliveryTracker()
         self.cache = AsyncCache(prefix="email:")
 
         try:
@@ -131,160 +39,7 @@ class EmailService:
 
     def _get_project_root(self) -> str:
         """Get project root directory"""
-        current_dir = Path(__file__).resolve().parent
-        while current_dir.parent != current_dir:
-            if (current_dir / "docker-compose.yml").exists():
-                return str(current_dir)
-            current_dir = current_dir.parent
-        return str(Path(__file__).resolve().parent)
-
-    def _validate_email(self, email: str) -> bool:
-        """Validate email format"""
-        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        return bool(re.match(pattern, email))
-
-    async def send_otp_email(
-        self,
-        email: str,
-        otp: str,
-        retry_count: int = 3
-    ) -> Dict[str, Any]:
-        """Send OTP email with enhanced error handling and tracking"""
-        async with AsyncRedisLock(f"email:otp:{email}", expire=30):
-            if not self._validate_email(email):
-                raise SequenceException(
-                    error_code=SequenceErrorCode.INVALID_EMAIL,
-                    message="Invalid email format"
-                )
-
-            # Check if rate limited
-            is_limited = await self._check_rate_limit(email)
-            if is_limited:
-                raise SequenceException(
-                    error_code=SequenceErrorCode.RATE_LIMIT,
-                    message="Too many email requests",
-                    retry_after=300  # 5 minutes
-                )
-
-            logger.debug("preparing_otp_email", email=email)
-
-            try:
-                # Prepare email content
-                template_context = {
-                    'otp_code': otp,
-                    'current_year': datetime.utcnow().year,
-                    'expiry_minutes': 10
-                }
-
-                html_content = await self.template_manager.render_template(
-                    'email_template.html',
-                    template_context
-                )
-
-                # Create email message
-                message = Mail(
-                    from_email=Email(
-                        email=settings.EMAIL_FROM,
-                        name=settings.EMAIL_FROM_NAME
-                    ),
-                    to_emails=To(email=email),
-                    subject='Your Email Verification Code',
-                    html_content=HtmlContent(html_content)
-                )
-
-                # Add plain text alternative
-                message.add_content(
-                    Content(
-                        "text/plain",
-                        f"Your verification code is: {otp}\n\n"
-                        "This code will expire in 10 minutes.\n\n"
-                        "If you didn't request this code, please ignore this email."
-                    )
-                )
-
-                # Send email with retries
-                last_error = None
-                for attempt in range(retry_count):
-                    try:
-                        response = await self._send_email(message)
-
-                        if response.status_code == 202:
-                            # Track successful delivery
-                            await self.delivery_tracker.track_attempt(
-                                email=email,
-                                message_id=response.headers.get('X-Message-Id'),
-                                status='sent',
-                                details={'attempt': attempt + 1}
-                            )
-
-                            logger.info(
-                                "otp_email_sent",
-                                email=email,
-                                message_id=response.headers.get('X-Message-Id')
-                            )
-
-                            return {
-                                'success': True,
-                                'message_id': response.headers.get('X-Message-Id'),
-                                'timestamp': datetime.utcnow().isoformat()
-                            }
-
-                    except Exception as e:
-                        last_error = e
-                        if attempt < retry_count - 1:
-                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                            continue
-                        break
-
-                # Track failed delivery
-                await self.delivery_tracker.track_attempt(
-                    email=email,
-                    message_id='failed',
-                    status='failed',
-                    details={
-                        'error': str(last_error),
-                        'attempts': retry_count
-                    }
-                )
-
-                logger.error(
-                    "otp_email_failed",
-                    email=email,
-                    error=str(last_error),
-                    attempts=retry_count
-                )
-
-                raise SequenceException(
-                    error_code=SequenceErrorCode.EMAIL_ERROR,
-                    message="Failed to send OTP email"
-                )
-
-            except Exception as e:
-                logger.error(
-                    "unexpected_email_error",
-                    email=email,
-                    error=str(e),
-                    error_type=type(e).__name__
-                )
-                raise SequenceException(
-                    error_code=SequenceErrorCode.SYSTEM_ERROR,
-                    message="Unexpected error sending email"
-                )
-
-    async def _check_rate_limit(self, email: str) -> bool:
-        """Check if email is rate limited"""
-        key = f"rate_limit:email:{email}"
-        count = await self.cache.increment(key)
-        if count == 1:
-            await self.cache.expire(key, 3600)  # 1 hour expiry
-        return count > settings.EMAIL_RATE_LIMIT
-
-    async def _send_email(self, message: Mail):
-        """Send email using SendGrid"""
-        return await asyncio.to_thread(
-            self.sg_client.send,
-            message
-        )
+        return str(Path(__file__).resolve().parent.parent)
 
     async def initialize_templates(self) -> None:
         """Initialize email templates"""
@@ -301,7 +56,43 @@ class EmailService:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Email Verification</title>
     <style>
-        /* Add your CSS styles here */
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .header {
+            text-align: center;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .content {
+            padding: 20px;
+            background-color: white;
+        }
+        .otp-container {
+            text-align: center;
+            padding: 20px;
+            margin: 20px 0;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .otp-code {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+            letter-spacing: 2px;
+        }
+        .instructions {
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 12px;
+            color: #6c757d;
+        }
     </style>
 </head>
 <body>
@@ -339,6 +130,8 @@ class EmailService:
 </body>
 </html>'''
 
+                # Create template file
+                os.makedirs(self.template_dir, exist_ok=True)
                 async with aiofiles.open(template_path, 'w') as f:
                     await f.write(default_template)
 
@@ -350,6 +143,99 @@ class EmailService:
                 error=str(e)
             )
             raise
+
+    def _validate_email(self, email: str) -> bool:
+        """Validate email format"""
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return bool(re.match(pattern, email))
+
+    async def send_otp_email(
+        self,
+        email: str,
+        otp: str,
+        retry_count: int = 3
+    ) -> Dict[str, Any]:
+        """Send OTP email with enhanced error handling and tracking"""
+        if not self._validate_email(email):
+            raise SequenceException(
+                error_code=SequenceErrorCode.INVALID_EMAIL,
+                message="Invalid email format"
+            )
+
+        template_path = os.path.join(self.template_dir, 'email_template.html')
+        if not os.path.exists(template_path):
+            await self.initialize_templates()
+
+        try:
+            # Read template
+            async with aiofiles.open(template_path, 'r') as f:
+                template_content = await f.read()
+
+            # Replace placeholders
+            current_year = datetime.utcnow().year
+            html_content = template_content.replace('{{ otp_code }}', otp)\
+                                        .replace('{{ expiry_minutes }}', '10')\
+                                        .replace('{{ current_year }}', str(current_year))
+
+            message = Mail(
+                from_email=Email(
+                    email=settings.EMAIL_FROM,
+                    name=settings.EMAIL_FROM_NAME
+                ),
+                to_emails=To(email=email),
+                subject='Your Email Verification Code',
+                html_content=HtmlContent(html_content)
+            )
+
+            # Add plain text version
+            message.add_content(
+                Content(
+                    "text/plain",
+                    f"Your verification code is: {otp}\n\n"
+                    "This code will expire in 10 minutes.\n\n"
+                    "If you didn't request this code, please ignore this email."
+                )
+            )
+
+            # Send with retries
+            for attempt in range(retry_count):
+                try:
+                    response = await asyncio.to_thread(
+                        self.sg_client.send,
+                        message
+                    )
+
+                    if response.status_code == 202:
+                        logger.info(
+                            "otp_email_sent",
+                            email=email,
+                            message_id=response.headers.get('X-Message-Id')
+                        )
+                        return {
+                            'success': True,
+                            'message_id': response.headers.get('X-Message-Id')
+                        }
+
+                except Exception as e:
+                    if attempt == retry_count - 1:
+                        raise
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+
+            raise SequenceException(
+                error_code=SequenceErrorCode.EMAIL_ERROR,
+                message="Failed to send OTP email after retries"
+            )
+
+        except Exception as e:
+            logger.error(
+                "send_otp_email_failed",
+                email=email,
+                error=str(e)
+            )
+            raise SequenceException(
+                error_code=SequenceErrorCode.EMAIL_ERROR,
+                message=str(e)
+            )
 
     async def health_check(self) -> Dict[str, Any]:
         """Check service health"""
@@ -377,5 +263,4 @@ class EmailService:
 # Initialize email service
 email_service = EmailService()
 
-# Export the service
 __all__ = ['email_service']
