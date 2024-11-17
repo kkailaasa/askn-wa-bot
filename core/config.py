@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import logging
 from enum import Enum
 from datetime import timedelta
+from pydantic import validator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -111,12 +112,10 @@ class Settings(BaseSettings):
     RATE_LIMIT_LOAD_STATS_LIMIT: int = 30
     RATE_LIMIT_LOAD_STATS_PERIOD: int = 60  # 1 minute
 
-    #Twilio Configuration
-    TWILIO_NUMBERS: List[str] = [] 
+    # Twilio Configuration
+    TWILIO_NUMBERS: str = ""
     TWILIO_ACCOUNT_SID: str
     TWILIO_AUTH_TOKEN: str
-    TWILIO_NUMBER: str
-    TWILIO_NUMBER_2: str
 
     # Keycloak Configuration
     KEYCLOAK_SERVER_URL: str
@@ -146,15 +145,11 @@ class Settings(BaseSettings):
     ERROR_LOGGING_LEVEL: str = "ERROR"
     DETAILED_ERROR_RESPONSES: bool = True  # Set to True only in development
 
-    @property
-    def TWILIO_NUMBERS(self) -> List[str]:
-        """Get list of Twilio numbers from TWILIO_NUMBER and TWILIO_NUMBER_2"""
-        numbers = []
-        if hasattr(self, 'TWILIO_NUMBER') and self.TWILIO_NUMBER:
-            numbers.append(self.TWILIO_NUMBER)
-        if hasattr(self, 'TWILIO_NUMBER_2') and self.TWILIO_NUMBER_2:
-            numbers.append(self.TWILIO_NUMBER_2)
-        return numbers
+    @validator('TWILIO_NUMBERS', pre=True)
+    def parse_twilio_numbers(cls, value):
+        if isinstance(value, str):
+            return value.split(',')
+        return value
 
 class TimeoutSettings(BaseSettings):
     """Timeout configurations"""
@@ -173,7 +168,6 @@ class TimeoutSettings(BaseSettings):
     REQUEST_TRACKING_ENABLED: bool = True
     REQUEST_ID_HEADER: str = "X-Request-ID"
     PROPAGATE_REQUEST_ID: bool = True
-
 
     class Config:
         env_file = ".env"
