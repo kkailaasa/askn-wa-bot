@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from api.load_balancer import router as load_balancer_router, signup_endpoint
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -9,7 +10,6 @@ from contextlib import asynccontextmanager
 import uvicorn
 import redis.asyncio as redis_async
 from api.routes import router
-from api.load_balancer import router as load_balancer_router, signup_endpoint
 from core.config import Settings
 from core.sequence_errors import (
     SequenceException,
@@ -259,10 +259,11 @@ app.add_middleware(
     allowed_hosts=["*"] if settings.DEBUG else settings.CORS_ALLOWED_ORIGINS
 )
 
-# Mount signup endpoint at root level
-app.add_api_route("/signup", signup_endpoint, methods=["GET"])
+@app.get("/signup")
+async def signup_route(request: Request, background_tasks: BackgroundTasks):
+    return await signup_endpoint(request, background_tasks)
 
-# Mount other routers with prefixes
+# Mount other routers
 app.include_router(router, prefix="/api")
 app.include_router(load_balancer_router, prefix="/api/lb")
 

@@ -197,10 +197,7 @@ class HybridLoadBalancer:
 # Initialize the load balancer
 load_balancer = HybridLoadBalancer()
 
-async def signup_endpoint(
-    request: Request,
-    background_tasks: BackgroundTasks = Depends(BackgroundTasks)
-):
+async def signup_endpoint(request: Request, background_tasks: BackgroundTasks):
     """Handle signup redirects to WhatsApp"""
     try:
         selected_number, current_loads = await load_balancer.select_number()
