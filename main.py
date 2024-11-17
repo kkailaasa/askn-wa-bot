@@ -259,7 +259,10 @@ app.add_middleware(
     allowed_hosts=["*"] if settings.DEBUG else settings.CORS_ALLOWED_ORIGINS
 )
 
-# Routers
+# Mount signup endpoint at root level
+app.add_route("/signup", signup_endpoint, methods=["GET"])
+
+# Mount other routers with prefixes
 app.include_router(router, prefix="/api")
 app.include_router(load_balancer_router, prefix="/api/lb")
 

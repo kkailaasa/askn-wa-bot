@@ -34,6 +34,45 @@ class HybridLoadBalancer:
             stats_window=self.stats_window
         )
 
+    async def increment_number_load(self, phone_number: str):
+        """Increment message count for a number"""
+        try:
+            redis = await self.redis_helper.get_redis()
+            timestamp = int(time.time())
+            key = f"msg_count:{phone_number}"
+
+            pipe = redis.pipeline()
+            await pipe.incr(key)
+            await pipe.expire(key, 1)  # Expire after 1 second for per-second counting
+            await pipe.execute()
+
+            current_load = float(await redis.get(key) or 0)
+
+            # Log to database if load is high
+            if current_load >= settings.MAX_MESSAGES_PER_SECOND * 0.8:
+                db = SessionLocal()
+                try:
+                    stats = NumberLoadStats(
+                        phone_number=phone_number,
+                        messages_per_second=current_load,
+                        timestamp=datetime.utcnow()
+                    )
+                    db.add(stats)
+                    db.commit()
+
+                    # Alert if load is very high
+                    if current_load >= settings.MAX_MESSAGES_PER_SECOND:
+                        await self.send_mattermost_alert(phone_number, current_load)
+                finally:
+                    db.close()
+        except Exception as e:
+            logger.error(
+                "increment_load_failed",
+                phone_number=phone_number,
+                error=str(e),
+                exc_info=True
+            )
+
     async def get_number_load(self, number: str) -> float:
         """Get current load for a number"""
         try:
@@ -123,92 +162,53 @@ class HybridLoadBalancer:
             fallback = numbers[0].strip() if numbers else ""
             return fallback, {}
 
+    async def send_mattermost_alert(self, phone_number: str, current_load: float):
+        """Send alert to Mattermost when load exceeds threshold"""
+        if not settings.MATTERMOST_WEBHOOK_URL:
+            logger.warning("mattermost_webhook_not_configured")
+            return
+
+        try:
+            message = {
+                "text": f"⚠️ WARNING: WhatsApp number {phone_number} is experiencing high load "
+                       f"({current_load:.2f} msgs/sec)"
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    settings.MATTERMOST_WEBHOOK_URL,
+                    json=message,
+                    timeout=5.0
+                )
+
+                if response.status_code != 200:
+                    logger.error(
+                        "mattermost_alert_failed",
+                        status_code=response.status_code,
+                        response=response.text
+                    )
+        except Exception as e:
+            logger.error(
+                "mattermost_alert_failed",
+                error=str(e),
+                exc_info=True
+            )
+
 # Initialize the load balancer
 load_balancer = HybridLoadBalancer()
 
-def increment_number_load(phone_number: str):
-    """Increment message count for a number"""
-    try:
-        timestamp = int(time.time())
-        key = f"msg_count:{phone_number}"
-
-        pipe = load_balancer.redis_client.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, 1)  # Expire after 1 second for per-second counting
-        pipe.execute()
-
-        current_load = float(load_balancer.redis_client.get(key) or 0)
-
-        # Log to database if load is high
-        if current_load >= settings.MAX_MESSAGES_PER_SECOND * 0.8:
-            db = SessionLocal()
-            try:
-                stats = NumberLoadStats(
-                    phone_number=phone_number,
-                    messages_per_second=current_load,
-                    timestamp=datetime.utcnow()
-                )
-                db.add(stats)
-                db.commit()
-
-                # Alert if load is very high
-                if current_load >= settings.MAX_MESSAGES_PER_SECOND:
-                    send_mattermost_alert(phone_number, current_load)
-            finally:
-                db.close()
-    except Exception as e:
-        logger.error(
-            "increment_load_failed",
-            phone_number=phone_number,
-            error=str(e),
-            exc_info=True
-        )
-
-async def send_mattermost_alert(phone_number: str, current_load: float):
-    """Send alert to Mattermost when load exceeds threshold"""
-    if not settings.MATTERMOST_WEBHOOK_URL:
-        logger.warning("mattermost_webhook_not_configured")
-        return
-
-    try:
-        message = {
-            "text": f"⚠️ WARNING: WhatsApp number {phone_number} is experiencing high load "
-                   f"({current_load:.2f} msgs/sec)"
-        }
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                settings.MATTERMOST_WEBHOOK_URL,
-                json=message,
-                timeout=5.0
-            )
-
-            if response.status_code != 200:
-                logger.error(
-                    "mattermost_alert_failed",
-                    status_code=response.status_code,
-                    response=response.text
-                )
-    except Exception as e:
-        logger.error(
-            "mattermost_alert_failed",
-            error=str(e),
-            exc_info=True
-        )
-
-@router.get("/signup")
-async def signup(request: Request, background_tasks: BackgroundTasks):
+async def signup_endpoint(request: Request, background_tasks: BackgroundTasks):
     """Handle signup redirects to WhatsApp"""
     try:
-        selected_number, current_loads = load_balancer.select_number()
+        selected_number, current_loads = await load_balancer.select_number()
 
         if not selected_number:
-            raise HTTPException(
+            return JSONResponse(
                 status_code=503,
-                detail="No WhatsApp numbers available"
+                content={"error": "No WhatsApp numbers available"}
             )
 
-        background_tasks.add_task(increment_number_load, selected_number)
+        background_tasks.add_task(load_balancer.increment_number_load, selected_number)
 
         # Log the redirect
         db = SessionLocal()
@@ -271,10 +271,10 @@ async def get_load_stats(
     """Get current load statistics for all numbers"""
     try:
         numbers = settings.TWILIO_NUMBERS.split(',')
-        stats = {
-            number.strip(): load_balancer.get_number_load(number.strip())
-            for number in numbers
-        }
+        stats = {}
+        for number in numbers:
+            load = await load_balancer.get_number_load(number.strip())
+            stats[number.strip()] = load
 
         logger.info(
             "load_stats_retrieved",
@@ -292,3 +292,5 @@ async def get_load_stats(
             status_code=500,
             detail="Error getting load statistics"
         )
+
+__all__ = ['router', 'signup_endpoint', 'load_balancer']

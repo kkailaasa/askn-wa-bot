@@ -1,313 +1,355 @@
 # API Endpoints Reference
 
-## 1. Check Phone Number
-**Endpoint:** `/check_phone`
-**Method:** POST
+## General Information
+
+### Authentication
+All endpoints require an API key passed via the `X-API-Key` header.
+
+### Response Format
+All endpoints return responses in the following format:
+```json
+{
+    "status": "success|failed|pending|blocked|retry_needed",
+    "message": "string",
+    "error_code": "string (optional)",
+    "data": {}, // Optional response data
+    "next_action": "string (optional)",
+    "retry_after": "number (optional)",
+    "error_context": {} // Optional error details
+}
+```
+
+### Rate Limiting
+Rate limits are implemented for all endpoints using Redis. Headers returned include:
+- `X-RateLimit-Limit`: Maximum requests allowed
+- `X-RateLimit-Remaining`: Remaining requests in window
+- `X-RateLimit-Reset`: Time until limit resets (seconds)
+
+## Endpoints
+
+### 1. Check Phone Number
+**Endpoint:** `/api/check_phone`  
+**Method:** POST  
+**Rate Limit:** 10 requests per 300 seconds per phone number
+
 **Request Body:**
 ```json
 {
-  "phone_number": "string"
+    "phone_number": "string" // Format: +1234567890 or whatsapp:+1234567890
 }
 ```
 
-**Response Scenarios:**
+**Success Responses:**
 ```json
-// Scenario 1: User found with email
+// User found with email
 {
-  "message": "User found",
-  "user": {
-    "id": "string",
-    "username": "string",
-    "email": "string",
-    "enabled": true,
-    "attributes": {}
-  }
+    "status": "success",
+    "message": "User found",
+    "data": {
+        "user": {
+            "id": "string",
+            "username": "string",
+            "email": "string",
+            "enabled": true,
+            "attributes": {}
+        }
+    }
 }
 
-// Scenario 2: User found without email
+// User found without email
 {
-  "message": "User found but email not set",
-  "user": {
-    "id": "string",
-    "username": "string",
-    "email": null,
-    "enabled": true,
-    "attributes": {}
-  },
-  "next_step": "check_email"
+    "status": "success",
+    "message": "User found but email not set",
+    "data": {
+        "user": {
+            "id": "string",
+            "username": "string",
+            "email": null,
+            "attributes": {}
+        }
+    },
+    "next_action": "check_email"
 }
 
-// Scenario 3: User not found
+// User not found
 {
-  "message": "User not found",
-  "next_step": "check_email"
+    "status": "success",
+    "message": "User not found",
+    "next_action": "check_email"
 }
 ```
 
-**Example curl command:**
-```bash
-curl -X POST "http://localhost:7262/check_phone" \
-     -H "Content-Type: application/json" \
-     -H "X-API-Key: your_api_key_here" \
-     -d '{"phone_number": "+254712345678"}'
-```
+### 2. Check Email
+**Endpoint:** `/api/check_email`  
+**Method:** POST  
+**Rate Limit:** 20 requests per 300 seconds per email
 
-## 2. Check Email
-**Endpoint:** `/check_email`
-**Method:** POST
 **Request Body:**
 ```json
 {
-  "phone_number": "string",
-  "email": "string"
+    "phone_number": "string",
+    "email": "string"
 }
 ```
-
-**Response Scenarios:**
-```json
-// Scenario 1: Accounts merged (when both phone and email exist separately)
-{
-  "message": "Accounts merged successfully",
-  "user": {
-    "id": "string",
-    "username": "string",
-    "email": "string",
-    "enabled": true,
-    "attributes": {}
-  }
-}
-
-// Scenario 2: Email added to existing phone account
-{
-  "message": "Email added to existing account",
-  "user": {
-    "id": "string",
-    "username": "string",
-    "email": "string",
-    "enabled": true,
-    "attributes": {}
-  }
-}
-
-// Scenario 3: Phone added to existing email account
-{
-  "message": "Phone attributes added to existing account",
-  "user": {
-    "id": "string",
-    "username": "string",
-    "email": "string",
-    "enabled": true,
-    "attributes": {}
-  }
-}
-
-// Scenario 4: New user creation needed
-{
-  "message": "User not found",
-  "next_step": "create_account"
-}
-```
-
-**Example curl command:**
-```bash
-curl -X POST "http://localhost:7262/check_email" \
-     -H "Content-Type: application/json" \
-     -H "X-API-Key: your_api_key_here" \
-     -d '{"phone_number": "+254712345678", "email": "user@example.com"}'
-```
-
-## 3. Create Account
-**Endpoint:** `/create_account`
-**Method:** POST
-**Request Body:**
-```json
-{
-  "phone_number": "string",
-  "email": "string",
-  "first_name": "string",
-  "last_name": "string",
-  "gender": "string",
-  "country": "string"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "User account created with UPDATE_PASSWORD action",
-  "user_id": "string",
-  "next_step": "verify_email"
-}
-```
-
-**Example curl command:**
-```bash
-curl -X POST "http://localhost:7262/create_account" \
-     -H "Content-Type: application/json" \
-     -H "X-API-Key: your_api_key_here" \
-     -d '{
-       "phone_number": "+254712345678",
-       "email": "user@example.com",
-       "first_name": "John",
-       "last_name": "Doe",
-       "gender": "male",
-       "country": "Kenya"
-     }'
-```
-
-## 4. Send Email OTP
-**Endpoint:** `/send_email_otp`
-**Method:** POST
-**Request Body:**
-```json
-{
-  "phone_number": "string",
-  "email": "string"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "OTP sent successfully"
-}
-```
-
-**Example curl command:**
-```bash
-curl -X POST "http://localhost:7262/send_email_otp" \
-     -H "Content-Type: application/json" \
-     -H "X-API-Key: your_api_key_here" \
-     -d '{"phone_number": "+254712345678", "email": "user@example.com"}'
-```
-
-## 5. Verify Email
-**Endpoint:** `/verify_email`
-**Method:** POST
-**Request Body:**
-```json
-{
-  "email": "string",
-  "otp": "string"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Email verified successfully."
-}
-```
-
-**Example curl command:**
-```bash
-curl -X POST "http://localhost:7262/verify_email" \
-     -H "Content-Type: application/json" \
-     -H "X-API-Key: your_api_key_here" \
-     -d '{"email": "user@example.com", "otp": "123456"}'
-```
-
-## 6. Message Endpoint
-**Endpoint:** `/message`
-**Method:** POST
-**Headers:**
-- Content-Type: application/x-www-form-urlencoded
-- X-Twilio-Signature: {twilio_signature}
-
-**Body Parameters:**
-| Parameter | Type   | Required | Description                    |
-|-----------|--------|----------|--------------------------------|
-| Body      | string | Yes      | The content of the message     |
-| From      | string | Yes      | The sender's phone number      |
 
 **Success Response:**
 ```json
 {
-  "message": "Message received and being processed."
+    "status": "success",
+    "message": "Email check completed",
+    "data": {
+        "existing_phone_user": boolean,
+        "existing_email_user": boolean
+    },
+    "next_action": "create_account"
 }
 ```
 
-**Example curl commands:**
-```bash
-# With Twilio Signature
-curl -X POST "https://your-api-domain.com/message" \
-     -H "Content-Type: application/x-www-form-urlencoded" \
-     -H "X-Twilio-Signature: YOUR_TWILIO_SIGNATURE" \
-     -d "Body=Hello, how are you?" \
-     -d "From=+1234567890"
+### 3. Create Account
+**Endpoint:** `/api/create_account`  
+**Method:** POST  
+**Rate Limit:** 10 requests per 60 seconds per IP
 
-# Without Twilio Signature (for testing)
-curl -X POST 'https://your-api-domain.com/message' \
-  --data-urlencode 'To=whatsapp:+1800000000' \
-  --data-urlencode 'From=whatsapp:+19000000000' \
-  --data-urlencode 'Body=Hello, this is a test message from Twilio!'
-```
-
-**Fetching Info on E-Citizen**
-```bash
-# Get user info by email
-curl -X POST http://localhost:7262/get_user_info \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: your_api_key" \
-  -d '{
-    "identifier": "user@example.com",
-    "identifier_type": "email"
-  }'
-
-# Get user info by phone
-curl -X POST http://localhost:7262/get_user_info \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: your_api_key" \
-  -d '{
-    "identifier": "+1234567890",
-    "identifier_type": "phone"
-  }'
-
-
-```
-
-## Error Responses
-
-### Rate Limit Exceeded
+**Request Body:**
 ```json
 {
-  "detail": "Rate limit exceeded. Please try again later."
+    "phone_number": "string",
+    "email": "string",
+    "first_name": "string",
+    "last_name": "string",
+    "gender": "string", // male|female|other|prefer_not_to_say
+    "country": "string" // ISO 2-letter code
 }
 ```
-Status Code: 429
 
-### Invalid API Key
+**Success Response:**
 ```json
 {
-  "detail": "Could not validate API key"
+    "status": "success",
+    "message": "Account created successfully",
+    "data": {
+        "user_id": "string",
+        "verification_pending": true
+    },
+    "next_action": "send_email_otp"
 }
 ```
-Status Code: 403
 
-### Invalid Request Sequence
+### 4. Send Email OTP
+**Endpoint:** `/api/send_email_otp`  
+**Method:** POST  
+**Rate Limit:** 3 requests per 300 seconds per email
+
+**Request Body:**
 ```json
 {
-  "detail": "Invalid request sequence"
+    "phone_number": "string",
+    "email": "string"
 }
 ```
-Status Code: 400
 
-### Internal Server Error
+**Success Response:**
 ```json
 {
-  "detail": "Internal server error"
+    "status": "success",
+    "message": "OTP sent successfully",
+    "data": {
+        "email": "string"
+    },
+    "next_action": "verify_email"
 }
 ```
-Status Code: 500
 
-## Rate Limits
-- Create User: 100 requests per hour
-- Add Email: 100 requests per hour
-- Verify Email: 100 requests per 5 minutes
-- Message Processing: 100 messages per 5 minutes
+### 5. Verify Email
+**Endpoint:** `/api/verify_email`  
+**Method:** POST  
+**Rate Limit:** 5 attempts per email within OTP validity period (10 minutes)
 
-## Security Notes
-- All endpoints require API key authentication
-- Twilio webhook validation is enforced on the message endpoint
-- OTPs expire after 10 minutes
-- Temporary data expires after 1 hour
+**Request Body:**
+```json
+{
+    "email": "string",
+    "otp": "string"
+}
+```
+
+**Success Response:**
+```json
+{
+    "status": "success",
+    "message": "Email verified successfully",
+    "data": {
+        "email": "string",
+        "verified": true
+    }
+}
+```
+
+### 6. Message Processing
+**Endpoint:** `/api/message`  
+**Method:** POST  
+**Rate Limit:** 70 messages per second per Twilio number  
+**Content-Type:** application/x-www-form-urlencoded
+
+**Request Parameters:**
+- `Body`: string (required) - Message content
+- `From`: string (required) - Sender's WhatsApp number
+
+**Success Response:**
+```json
+{
+    "status": "success",
+    "message": "Message processed successfully",
+    "data": {
+        "conversation_id": "string",
+        "timestamp": "string"
+    }
+}
+```
+
+### 7. Get User Info
+**Endpoint:** `/api/get_user_info`  
+**Method:** POST  
+**Rate Limit:** 20 requests per 300 seconds per identifier
+
+**Request Body:**
+```json
+{
+    "identifier": "string",
+    "identifier_type": "email|phone"
+}
+```
+
+**Success Response:**
+```json
+{
+    "username": "string",
+    "email": "string",
+    "enabled": boolean,
+    "firstName": "string",
+    "lastName": "string",
+    "attributes": {
+        "phoneType": "string",
+        "phoneNumber": "string",
+        "gender": "string",
+        "phoneVerified": "string",
+        "country": "string",
+        "verificationRoute": "string"
+    },
+    "message": "User information retrieved successfully"
+}
+```
+
+### 8. Health Check
+**Endpoint:** `/api/health`  
+**Method:** GET  
+**No authentication required**
+
+**Response:**
+```json
+{
+    "status": "healthy|degraded|unhealthy",
+    "timestamp": "string",
+    "version": "string",
+    "components": {
+        "redis": {
+            "status": "healthy|unhealthy",
+            "latency_ms": number
+        },
+        "keycloak": {
+            "status": "healthy|unhealthy",
+            "latency_ms": number
+        }
+    }
+}
+```
+
+## Load Balancer Endpoints
+
+### 1. Signup Redirect
+**Endpoint:** `/api/lb/signup`  
+**Method:** GET  
+**Rate Limit:** 10 requests per 60 seconds per IP
+
+**Response:** Redirects to WhatsApp chat with selected number
+
+### 2. Load Statistics
+**Endpoint:** `/api/lb/load-stats`  
+**Method:** GET  
+**Rate Limit:** 30 requests per 60 seconds per IP
+
+**Response:**
+```json
+{
+    "whatsapp:+1234567890": number, // Current messages/second
+    "whatsapp:+0987654321": number
+}
+```
+
+## Error Codes and Messages
+
+### Common Error Codes
+- `INVALID_PHONE`: Invalid phone number format
+- `INVALID_EMAIL`: Invalid email format
+- `INVALID_DATA`: Invalid input data
+- `VALIDATION_ERROR`: Input validation failed
+- `SEQUENCE_VIOLATION`: Invalid operation sequence
+- `RATE_LIMIT`: Rate limit exceeded
+- `KEYCLOAK_ERROR`: Authentication service error
+- `EMAIL_ERROR`: Email service error
+- `SYSTEM_ERROR`: Internal server error
+- `TIMEOUT`: Operation timed out
+- `DATA_NOT_FOUND`: Requested data not found
+- `MAX_ATTEMPTS_EXCEEDED`: Maximum retry attempts reached
+
+### Error Response Format
+```json
+{
+    "status": "failed",
+    "message": "Error description",
+    "error_code": "ERROR_CODE",
+    "retry_after": number, // Optional, for rate limits
+    "error_context": {
+        "timestamp": "string",
+        "details": {},
+        "operation": "string"
+    }
+}
+```
+
+## Sequence Management
+The API enforces strict operation sequences:
+1. check_phone
+2. check_email
+3. create_account
+4. send_email_otp
+5. verify_email
+
+Each step must be completed in order, and data consistency is maintained across steps.
+
+## Security Features
+- API key validation on all endpoints
+- Rate limiting per IP and identifier
+- Request tracking with X-Request-ID
+- Sequence state expiration (1 hour)
+- OTP expiration (10 minutes)
+- Maximum OTP verification attempts (3)
+- Load balancer thresholds and alerts
+- Comprehensive error logging and monitoring
+
+## Monitoring and Logging
+All endpoints include:
+- Request/Response logging
+- Error tracking
+- Performance metrics
+- Load statistics
+- Health monitoring
+- Rate limit tracking
+
+Headers returned include:
+- `X-Request-ID`: Request identifier
+- `X-Process-Time`: Processing time in seconds
+
+## Development Notes
+Base URL for development: `http://localhost:7262/api/`
+All timestamps are in ISO 8601 format and UTC timezone.
