@@ -23,7 +23,7 @@ from utils.http_client import http_pool
 from utils.redis_pool import redis_pool, get_redis_client
 from utils.redis_helpers import AsyncRedisLock, cleanup_expired_keys
 from utils.logging_utils import log_error
-from services import auth_service, email_service, chat_service
+from services import auth_service, email_service, ChatService
 from services.email_service import EmailService
 import sys
 import atexit
@@ -446,7 +446,7 @@ async def check_dependencies_health():
         "database": await check_db_health(),
         "keycloak": await auth_service.health_check(),
         "email": await email_service.health_check(),
-        "dify": await chat_service.health_check()
+        "dify": await ChatService.health_check()
     }
 
 @app.get("/api/health")
