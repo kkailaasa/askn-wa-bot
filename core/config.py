@@ -132,7 +132,7 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str = "an_wa_bot"
-    DATABASE_URL: Optional[str] = None
+    DATABASE_URL: str
     DB_POOL_SIZE: int = 20
     DB_POOL_TIMEOUT: int = 30
     DB_MAX_OVERFLOW: int = 10
