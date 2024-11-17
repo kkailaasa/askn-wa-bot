@@ -148,8 +148,8 @@ class Settings(BaseSettings):
     @validator('TWILIO_NUMBERS', pre=True)
     def parse_twilio_numbers(cls, value):
         if isinstance(value, str):
-            return value.split(',')
-        return value
+            return value
+        return ""
 
 class TimeoutSettings(BaseSettings):
     """Timeout configurations"""
