@@ -17,7 +17,23 @@ class HybridLoadBalancer:
     def __init__(self):
         self.redis_client = redis_client
         self.current_index_key = "lb:current_index"
-        self.high_load_threshold = settings.MAX_MESSAGES_PER_SECOND * 0.8
+
+        # Load settings with defaults
+        self.max_messages = getattr(settings, 'MAX_MESSAGES_PER_SECOND', 70)
+        self.high_threshold = getattr(settings, 'LOAD_BALANCER_HIGH_THRESHOLD', 0.8)
+        self.alert_threshold = getattr(settings, 'LOAD_BALANCER_ALERT_THRESHOLD', 0.9)
+        self.stats_window = getattr(settings, 'LOAD_BALANCER_STATS_WINDOW', 60)
+
+        # Calculate thresholds
+        self.high_load_threshold = self.max_messages * self.high_threshold
+        self.alert_threshold = self.max_messages * self.alert_threshold
+
+        logger.info(
+            "Load balancer initialized",
+            max_messages=self.max_messages,
+            high_threshold=self.high_load_threshold,
+            alert_threshold=self.alert_threshold
+        )
 
     def get_number_load(self, number: str) -> float:
         """Get current load for a number"""

@@ -116,6 +116,8 @@ class Settings(BaseSettings):
     TWILIO_NUMBERS: str = ""
     TWILIO_ACCOUNT_SID: str
     TWILIO_AUTH_TOKEN: str
+    TWILIO_MAX_CONNECTIONS: int = 10
+    MAX_MESSAGES_PER_SECOND: int = 70
 
     # Keycloak Configuration
     KEYCLOAK_SERVER_URL: str
@@ -143,6 +145,11 @@ class Settings(BaseSettings):
     SENDGRID_API_KEY: str
     EMAIL_FROM_NAME: str
     EMAIL_FROM: str
+
+    # Load Balancer Settings
+    LOAD_BALANCER_HIGH_THRESHOLD: float = 0.8  # 80% of max capacity
+    LOAD_BALANCER_ALERT_THRESHOLD: float = 0.9  # 90% of max capacity
+    LOAD_BALANCER_STATS_WINDOW: int = 60  # 1 minute window for stats
 
     # Add Celery Configuration
     CELERY_BROKER_URL: str = "redis://redis:6379/0"
@@ -211,6 +218,19 @@ class Settings(BaseSettings):
                 "period": self.RATE_LIMITS.STEP_TRANSITION_PERIOD,
                 "key_pattern": "rate_limit:step:{identifier}",
                 "identifier_type": "identifier"
+            },
+            # Load Balancer Rate Limits
+            "signup": {
+                "limit": self.RATE_LIMIT_SIGNUP_LIMIT,
+                "period": self.RATE_LIMIT_SIGNUP_PERIOD,
+                "key_pattern": "rate_limit:signup:{ip}",
+                "identifier_type": "ip"
+            },
+            "load_stats": {
+                "limit": self.RATE_LIMIT_LOAD_STATS_LIMIT,
+                "period": self.RATE_LIMIT_LOAD_STATS_PERIOD,
+                "key_pattern": "rate_limit:load_stats:{ip}",
+                "identifier_type": "ip"
             }
         }
 
