@@ -26,10 +26,7 @@ class RateLimiter:
         rate_limit_type: str,
         settings: Any
     ) -> Tuple[bool, Optional[int]]:
-        """
-        Check if the request is rate limited
-        Returns: (is_limited, retry_after)
-        """
+        """Check if the request is rate limited"""
         config = settings.rate_limit_config.get(rate_limit_type)
         if not config:
             logger.warning(f"No rate limit configuration found for {rate_limit_type}")
@@ -54,25 +51,14 @@ class RateLimiter:
             # Set expiry
             pipe.expire(key, config['period'])
 
-            # Execute pipeline
             _, count, _, _ = pipe.execute()
-
-            is_limited = count > config['limit']
-            retry_after = config['period'] if is_limited else None
-
-            if is_limited:
-                logger.warning(
-                    f"Rate limit exceeded for {rate_limit_type} - "
-                    f"Identifier: {identifier}, Count: {count}, Limit: {config['limit']}"
-                )
-
-            return is_limited, retry_after
+            return count > config['limit'], config['period']
 
         except Exception as e:
-            logger.error(f"Error checking rate limit: {str(e)}")
+            logger.error(f"Rate limit check failed: {str(e)}")
             return False, None
 
-    def get_remaining_limit(
+    async def get_remaining_limit(
         self,
         request: Request,
         rate_limit_type: str,
@@ -90,15 +76,29 @@ class RateLimiter:
         key = config['key_pattern'].format(**{config['identifier_type']: identifier})
         current_time = int(time.time())
 
-        # Get current count
-        count = self.redis_client.zcount(key, current_time - config['period'], current_time)
-        remaining = max(0, config['limit'] - count)
+        try:
+            # Get current count
+            count = await self.redis_client.zcount(
+                key,
+                current_time - config['period'],
+                current_time
+            )
+            remaining = max(0, config['limit'] - count)
 
-        # Get time until oldest request expires
-        oldest = self.redis_client.zrange(key, 0, 0, withscores=True)
-        if oldest:
-            ttl = int(oldest[0][1] + config['period'] - current_time)
-        else:
-            ttl = config['period']
+            # Get time until oldest request expires
+            oldest = await self.redis_client.zrange(
+                key,
+                0,
+                0,
+                withscores=True
+            )
+            if oldest:
+                ttl = int(oldest[0][1] + config['period'] - current_time)
+            else:
+                ttl = config['period']
 
-        return remaining, max(0, ttl)
+            return remaining, max(0, ttl)
+
+        except Exception as e:
+            logger.error(f"Error getting rate limit info: {str(e)}")
+            return 0, 0
