@@ -978,7 +978,7 @@ async def get_user_info_endpoint(
             )
 
         # Initialize auth service
-        auth_service = ECitzenAuthService()
+        auth_service = ECitizenAuthService()
 
         # Get user data based on identifier type
         try:
