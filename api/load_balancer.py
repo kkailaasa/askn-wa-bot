@@ -11,12 +11,11 @@ from core.config import settings
 from services.auth import get_api_key
 
 router = APIRouter()
-redis_client = redis.from_url(settings.REDIS_URL)
 logger = logging.getLogger(__name__)
 
 class HybridLoadBalancer:
-    def __init__(self, redis_client: redis.Redis):
-        self.redis_client = redis_client
+    def __init__(self):
+        self.redis_client = get_redis_client()
         self.current_index_key = "lb:current_index"
         # High load threshold (messages per second)
         self.high_load_threshold = settings.MAX_MESSAGES_PER_SECOND * 0.8  # 80% of max
@@ -27,7 +26,7 @@ class HybridLoadBalancer:
             key = f"msg_count:{number}"
             count = self.redis_client.get(key)
             return float(count or 0)
-        except redis.RedisError as e:
+        except Exception as e:
             logger.error(f"Redis error getting load: {e}")
             return 0.0
 
@@ -43,7 +42,7 @@ class HybridLoadBalancer:
                 self.redis_client.set(self.current_index_key, 0)
                 current_index = 0
             return numbers[current_index]
-        except redis.RedisError as e:
+        except Exception as e:
             logger.error(f"Redis error in round-robin: {e}")
             # Fallback to timestamp-based selection
             return numbers[int(time.time()) % len(numbers)]
@@ -57,7 +56,7 @@ class HybridLoadBalancer:
         Select the best number using hybrid approach.
         Returns tuple of (selected_number, current_loads)
         """
-        numbers = settings.TWILIO_NUMBERS
+        numbers = settings.TWILIO_NUMBERS.split(',') if settings.TWILIO_NUMBERS else []
         if not numbers:
             raise ValueError("No WhatsApp numbers configured")
 
@@ -85,6 +84,8 @@ class HybridLoadBalancer:
             fallback = numbers[int(time.time()) % len(numbers)]
             logger.info(f"Using fallback number: {fallback}")
             return fallback, {}
+
+load_balancer = HybridLoadBalancer()
 
 def select_number() -> str:
     """Main interface for number selection"""

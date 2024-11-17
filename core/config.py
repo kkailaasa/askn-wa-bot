@@ -245,8 +245,14 @@ class TimeoutSettings(BaseSettings):
     def _init_dynamic_settings(self) -> None:
         """Initialize settings that depend on other settings"""
         # Set Redis URL if not provided
-        if not self.REDIS_URL:
-            self.REDIS_URL = f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
+        self.REDIS_URL = self.REDIS_URL or f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
+
+        # Set Database URL if not provided
+        if not hasattr(self, 'DATABASE_URL') or not self.DATABASE_URL:
+            self.DATABASE_URL = (
+                f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+                f"@db:5432/{self.POSTGRES_DB}"
+            )
 
         # Set Database URL if not provided
         if not self.DATABASE_URL:
