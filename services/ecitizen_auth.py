@@ -1,307 +1,407 @@
 from keycloak import KeycloakAdmin, KeycloakOpenIDConnection
-from keycloak.exceptions import KeycloakError
+from keycloak.exceptions import KeycloakError, KeycloakConnectionError, KeycloakAuthenticationError
+from keycloak.urls_patterns import URL_TOKEN
 from core.config import settings
 from utils.redis_pool import get_redis_client
+from services.rate_limiter import RateLimiter
+from utils.redis_helpers import RedisLock, cache
 from functools import lru_cache
 import json
 import logging
 import secrets
 import time
 import redis
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
+from fastapi import Request
+import structlog
+import aiohttp
+import asyncio
+from datetime import datetime, timedelta
+import jwt
+from core.sequence_errors import SequenceException, SequenceErrorCode
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Set up structured logging
+logger = structlog.get_logger(__name__)
 
+# Initialize Redis and rate limiter
 redis_client = get_redis_client()
+rate_limiter = RateLimiter(redis_client)
 
-class KeycloakOperationError(Exception):
-    """Custom exception for Keycloak operations."""
-    pass
-
-@lru_cache(maxsize=1)
-def create_keycloak_admin():
-    try:
-        keycloak_connection = KeycloakOpenIDConnection(
-            server_url=settings.KEYCLOAK_SERVER_URL,
-            user_realm_name="master",
-            client_id=settings.KEYCLOAK_API_CLIENT_ID,
-            realm_name=settings.KEYCLOAK_REALM,
-            username=settings.KEYCLOAK_USER_NAME,
-            password=settings.KEYCLOAK_PASSWORD,
-            verify=True
-        )
-        return KeycloakAdmin(connection=keycloak_connection)
-    except Exception as e:
-        logger.error(f"Error creating Keycloak admin: {str(e)}")
-        raise KeycloakOperationError("Failed to create Keycloak admin")
-
-def get_cache_key(identifier: str, identifier_type: str) -> str:
-    return f"keycloak_user:{identifier_type}:{identifier}"
-
-def get_from_cache(key: str) -> Optional[Dict[str, Any]]:
-    try:
-        cached_data = redis_client.get(key)
-        if cached_data:
-            return json.loads(cached_data)
-    except redis.RedisError as e:
-        logger.error(f"Redis error while getting data from cache: {str(e)}")
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error while getting data from cache: {str(e)}")
-    return None
-
-def set_in_cache(key: str, data: Dict[str, Any]):
-    try:
-        redis_client.setex(key, settings.KEYCLOAK_CACHE_EXPIRATION, json.dumps(data))
-    except (redis.RedisError, json.JSONDecodeError) as e:
-        logger.error(f"Error setting data in cache: {str(e)}")
-
-def get_user_info(user: Dict[str, Any]) -> Dict[str, Any]:
-    attributes = user.get('attributes', {})
-    return {
-        "username": user.get('username', ''),
-        "email": user.get('email', ''),
-        "enabled": user.get('enabled', False),
-        "phoneType": attributes.get('phoneType', [None])[0] if attributes.get('phoneType') else None,
-        "phoneNumber": attributes.get('phoneNumber', [None])[0] if attributes.get('phoneNumber') else None,
-        "gender": attributes.get('gender', [None])[0] if attributes.get('gender') else None,
-        "phoneNumberVerified": attributes.get('phoneNumberVerified', [None])[0] if attributes.get('phoneNumberVerified') else None,
-        "firstName": user.get('firstName', ''),
-        "lastName": user.get('lastName', '')
-    }
-
-def get_user_by_identifier(identifier: str, identifier_type: str) -> Optional[Dict[str, Any]]:
-    cache_key = get_cache_key(identifier, identifier_type)
-    cached_user = get_from_cache(cache_key)
-
-    if cached_user:
-        logger.info(f"User data for {identifier_type} {identifier} retrieved from cache")
-        return cached_user
-
-    try:
-        keycloak_admin = create_keycloak_admin()
-        if identifier_type == "email":
-            users = keycloak_admin.get_users({"email": identifier})
-        elif identifier_type == "phone":
-            users = keycloak_admin.get_users({"q": f"phoneNumber:{identifier}"})
-        else:
-            raise ValueError(f"Invalid identifier_type: {identifier_type}")
-
-        if len(users) == 1:
-            user_info = get_user_info(users[0])
-            set_in_cache(cache_key, user_info)
-            logger.info(f"User data for {identifier_type} {identifier} retrieved from Keycloak and cached")
-            return user_info
-
-        logger.info(f"User with {identifier_type} {identifier} not found")
-        return None
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while getting user by {identifier_type}: {str(e)}")
-        raise KeycloakOperationError(f"Failed to get user by {identifier_type}")
-
-def get_user_by_phone(phone_number: str) -> Optional[Dict[str, Any]]:
-    return get_user_by_identifier(phone_number, "phone")
-
-def get_user_by_phone_or_username(identifier: str) -> Optional[Dict[str, Any]]:
-    try:
-        keycloak_admin = create_keycloak_admin()
-        # Check username
-        users = keycloak_admin.get_users({"username": identifier})
-        if not users:
-            # Check phoneNumber attribute
-            users = keycloak_admin.get_users({"q": f"phoneNumber:{identifier}"})
-
-        if users:
-            user = users[0]
-            logger.debug(f"Raw user from Keycloak: {user}")
-            return {
-                "id": user.get("id"),
-                "username": user.get("username"),
-                "email": user.get("email"),
-                "enabled": user.get("enabled", False),
-                "firstName": user.get("firstName"),
-                "lastName": user.get("lastName"),
-                "attributes": user.get("attributes", {})
-            }
-        return None
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while getting user: {str(e)}")
-        raise KeycloakOperationError("Failed to get user")
-
-def get_user_by_email_or_username(email: str) -> Optional[Dict[str, Any]]:
-    try:
-        keycloak_admin = create_keycloak_admin()
-        # Check email
-        users = keycloak_admin.get_users({"email": email})
-        if not users:
-            # Check username
-            users = keycloak_admin.get_users({"username": email})
-
-        if users:
-            user = users[0]
-            return {
-                "id": user.get("id"),
-                "username": user.get("username"),
-                "email": user.get("email"),
-                "enabled": user.get("enabled", False),
-                "attributes": user.get("attributes", {})
-            }
-        return None
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while getting user by email: {str(e)}")
-        raise KeycloakOperationError("Failed to get user by email")
-
-def add_phone_attributes_to_user(user_id: str, phone_number: str, phone_type: str, phone_verified: str, verification_route: str) -> Dict[str, Any]:
-    try:
-        keycloak_admin = create_keycloak_admin()
-        user_info = keycloak_admin.get_user(user_id)
-        if not user_info:
-            raise KeycloakOperationError(f"User with ID {user_id} not found")
-
-        attributes = user_info.get('attributes', {})
-
-        # If phoneNumber doesn't exist, create it as a list
-        if 'phoneNumber' not in attributes:
-            attributes['phoneNumber'] = []
-
-        # Add the new phone number if it's not already in the list
-        if phone_number not in attributes['phoneNumber']:
-            attributes['phoneNumber'].append(phone_number)
-
-        attributes['phoneType'] = [phone_type]
-        attributes['phoneVerified'] = [phone_verified]
-        attributes['verificationRoute'] = [verification_route]
-
-        keycloak_admin.update_user(user_id=user_id, payload={"attributes": attributes})
-        logger.info(f"Phone attributes added for user ID: {user_id}")
-        return {"message": "Phone attributes added successfully."}
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while adding phone attributes to user: {str(e)}")
-        raise KeycloakOperationError("Failed to add phone attributes to user")
-
-def create_user_with_phone(phone_number: str, email: str, first_name: str, last_name: str, gender: str, country: str, phone_type: str, phone_verified: str, verification_route: str) -> Dict[str, Any]:
-    try:
-        keycloak_admin = create_keycloak_admin()
-
-        user_data = {
-            "username": phone_number,
-            "email": email,
-            "enabled": True,
-            "firstName": first_name,
-            "lastName": last_name,
-            "attributes": {
-                "phoneNumber": [phone_number],
-                "phoneType": [phone_type],
-                "phoneVerified": [phone_verified],
-                "verificationRoute": [verification_route],
-                "gender": [gender],
-                "country": [country]
-            },
-            "requiredActions": ["UPDATE_PASSWORD"]  # set the required action
-        }
-
-        user_id = keycloak_admin.create_user(user_data)
-        logger.info(f"User created with phone number: {phone_number} and UPDATE_PASSWORD action")
-        return {"user_id": user_id, "message": "User created successfully with UPDATE_PASSWORD action."}
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while creating user: {str(e)}")
-        raise KeycloakOperationError("Failed to create user")
-
-        user_id = keycloak_admin.create_user(user_data)
-        logger.info(f"User created with phone number: {phone_number}")
-        return {"user_id": user_id, "message": "User created successfully."}
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while creating user: {str(e)}")
-        raise KeycloakOperationError("Failed to create user")
-
-def verify_email(email: str) -> Dict[str, Any]:
-    try:
-        keycloak_admin = create_keycloak_admin()
-        users = keycloak_admin.get_users({"email": email})
-        if not users:
-            raise KeycloakOperationError("User not found")
-        user_id = users[0]['id']
-        keycloak_admin.update_user(user_id=user_id, payload={"emailVerified": True})
-        logger.info(f"Email verified for user with email: {email}")
-        return {"message": "Email verified successfully."}
-    except KeycloakError as e:
-        logger.error(f"Keycloak error while verifying email: {str(e)}")
-        raise KeycloakOperationError("Failed to verify email")
-
-def generate_otp() -> str:
-    return ''.join([str(secrets.randbelow(10)) for _ in range(6)])  # Generate a 6-digit numeric OTP
-
-def store_otp(email: str, otp: str):
-    try:
-        redis_client.setex(f"otp:{email}", 600, otp)  # OTP valid for 10 minutes
-    except redis.RedisError as e:
-        logger.error(f"Redis error while storing OTP: {str(e)}")
-        raise
-
-def verify_otp(email: str, otp: str) -> Dict[str, Any]:
-    try:
-        stored_otp = redis_client.get(f"otp:{email}")
-        if not stored_otp:
-            return {"valid": False, "message": "OTP expired or not found"}
-
-        if stored_otp.decode() == otp:
-            redis_client.delete(f"otp:{email}")
-            return {"valid": True, "message": "OTP verified successfully"}
-
-        return {"valid": False, "message": "Invalid OTP"}
-    except redis.RedisError as e:
-        logger.error(f"Redis error while verifying OTP: {str(e)}")
-        raise
-
-class RateLimiter:
+class KeycloakTokenManager:
+    """Manages Keycloak token lifecycle"""
     def __init__(self):
-        self.redis_client = get_redis_client()
+        self.token_cache_key = "keycloak:admin:token"
+        self.token_lock_key = "keycloak:token:lock"
+        self.token = None
+        self.token_expires_at = 0
 
-    def is_rate_limited(self, key: str, limit: int, period: int) -> bool:
-        current = int(time.time())
-        key = f"rate_limit:{key}"
+    async def get_valid_token(self) -> str:
+        """Get a valid token, refresh if needed"""
+        current_time = time.time()
 
-        with self.redis_client.pipeline() as pipe:
-            pipe.zremrangebyscore(key, 0, current - period)
-            pipe.zcard(key)
-            pipe.zadd(key, {current: current})
-            pipe.expire(key, period)
-            _, count, _, _ = pipe.execute()
+        # Check if current token is still valid (with 30s buffer)
+        if self.token and self.token_expires_at > (current_time + 30):
+            return self.token
 
-        return count > limit
+        # Use distributed lock to prevent concurrent token refreshes
+        async with RedisLock(self.token_lock_key, expire=30):
+            # Check cache first
+            cached_token = await cache.get(self.token_cache_key)
+            if cached_token:
+                token_data = json.loads(cached_token)
+                if token_data['expires_at'] > (current_time + 30):
+                    self.token = token_data['token']
+                    self.token_expires_at = token_data['expires_at']
+                    return self.token
 
-def store_temp_data(key: str, data: Dict[str, Any], expiry: int = 3600):
-    redis_key = f"temp_data:{key}"
-    redis_client.setex(redis_key, expiry, json.dumps(data))
+            # Get new token
+            try:
+                async with aiohttp.ClientSession() as session:
+                    token_url = f"{settings.KEYCLOAK_SERVER_URL}/realms/master/protocol/openid-connect/token"
+                    async with session.post(
+                        token_url,
+                        data={
+                            'grant_type': 'password',
+                            'client_id': settings.KEYCLOAK_API_CLIENT_ID,
+                            'username': settings.KEYCLOAK_USER_NAME,
+                            'password': settings.KEYCLOAK_PASSWORD
+                        }
+                    ) as response:
+                        if response.status != 200:
+                            raise KeycloakAuthenticationError("Failed to get admin token")
 
-def get_temp_data(key: str) -> Optional[Dict[str, Any]]:
-    redis_key = f"temp_data:{key}"
-    data = redis_client.get(redis_key)
-    if data:
-        return json.loads(data)
-    return None
+                        token_data = await response.json()
+                        self.token = token_data['access_token']
+                        self.token_expires_at = current_time + token_data['expires_in']
 
-def delete_temp_data(key: str):
-    redis_key = f"temp_data:{key}"
-    redis_client.delete(redis_key)
+                        # Cache the token
+                        await cache.set(
+                            self.token_cache_key,
+                            json.dumps({
+                                'token': self.token,
+                                'expires_at': self.token_expires_at
+                            }),
+                            expiry=token_data['expires_in']
+                        )
 
-rate_limiter = RateLimiter()
+                        return self.token
 
-__all__ = [
-    'KeycloakOperationError',
-    'create_keycloak_admin',
-    'get_user_by_email_or_username',
-    'get_user_by_phone_or_username',
-    'create_user_with_phone',
-    'add_phone_attributes_to_user',
-    'verify_email',
-    'generate_otp',
-    'store_otp',
-    'verify_otp',
-    'store_temp_data',
-    'get_temp_data',
-    'delete_temp_data',
-    'rate_limiter',
-    'RateLimiter',
-]
+            except Exception as e:
+                logger.error(
+                    "token_refresh_failed",
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise KeycloakAuthenticationError("Failed to refresh token")
+
+class KeycloakHealthMonitor:
+    """Monitors Keycloak server health"""
+    def __init__(self):
+        self.health_cache_key = "keycloak:health:status"
+        self.last_check_key = "keycloak:health:lastcheck"
+        self.check_interval = 60  # seconds
+
+    async def get_health_status(self) -> Dict[str, Any]:
+        """Get current health status with caching"""
+        current_time = time.time()
+
+        # Check cache first
+        cached_status = await cache.get(self.health_cache_key)
+        last_check = await cache.get(self.last_check_key)
+
+        if cached_status and last_check and (current_time - float(last_check)) < self.check_interval:
+            return json.loads(cached_status)
+
+        # Perform health check
+        try:
+            async with aiohttp.ClientSession() as session:
+                start_time = time.time()
+                async with session.get(f"{settings.KEYCLOAK_SERVER_URL}/health") as response:
+                    response_time = time.time() - start_time
+
+                    health_status = {
+                        'status': 'healthy' if response.status == 200 else 'unhealthy',
+                        'response_time': response_time,
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'details': await response.json() if response.status == 200 else None
+                    }
+
+                    # Cache the results
+                    await cache.set(
+                        self.health_cache_key,
+                        json.dumps(health_status),
+                        expiry=self.check_interval
+                    )
+                    await cache.set(
+                        self.last_check_key,
+                        str(current_time),
+                        expiry=self.check_interval
+                    )
+
+                    return health_status
+
+        except Exception as e:
+            error_status = {
+                'status': 'unhealthy',
+                'error': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            await cache.set(
+                self.health_cache_key,
+                json.dumps(error_status),
+                expiry=30  # Shorter cache time for errors
+            )
+            return error_status
+
+class ECitizenAuthService:
+    """Enhanced Keycloak authentication service"""
+    def __init__(self):
+        self.token_manager = KeycloakTokenManager()
+        self.health_monitor = KeycloakHealthMonitor()
+        self.cache_prefix = "auth:"
+        self._admin = None
+        self._keycloak_connection = None
+
+    async def get_admin(self) -> KeycloakAdmin:
+        """Get Keycloak admin instance with valid token"""
+        if not self._admin:
+            token = await self.token_manager.get_valid_token()
+            self._keycloak_connection = KeycloakOpenIDConnection(
+                server_url=settings.KEYCLOAK_SERVER_URL,
+                realm_name=settings.KEYCLOAK_REALM,
+                user_realm_name="master",
+                client_id=settings.KEYCLOAK_API_CLIENT_ID,
+                verify=True
+            )
+            self._admin = KeycloakAdmin(connection=self._keycloak_connection)
+            self._admin.token = token
+
+        return self._admin
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Get comprehensive health status"""
+        return await self.health_monitor.get_health_status()
+
+    async def get_user_by_email_or_username(
+        self,
+        request: Request,
+        email: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get user by email with enhanced error handling"""
+        try:
+            # Rate limit check
+            is_limited = await rate_limiter.is_rate_limited(
+                request=request,
+                rate_limit_type="get_user_info",
+                settings=settings
+            )
+            if is_limited:
+                raise SequenceException(
+                    error_code=SequenceErrorCode.RATE_LIMIT,
+                    message="Rate limit exceeded for user lookups",
+                    retry_after=60
+                )
+
+            # Check cache first
+            cache_key = f"{self.cache_prefix}user:email:{email}"
+            cached_user = await cache.get(cache_key)
+            if cached_user:
+                return json.loads(cached_user)
+
+            admin = await self.get_admin()
+            users = await asyncio.to_thread(admin.get_users, {"email": email})
+
+            if not users:
+                users = await asyncio.to_thread(admin.get_users, {"username": email})
+
+            if users:
+                user = users[0]
+                user_data = {
+                    "id": user.get("id"),
+                    "username": user.get("username"),
+                    "email": user.get("email"),
+                    "enabled": user.get("enabled", False),
+                    "attributes": user.get("attributes", {})
+                }
+
+                # Cache the result
+                await cache.set(cache_key, json.dumps(user_data), expiry=300)
+                return user_data
+
+            return None
+
+        except KeycloakError as e:
+            logger.error(
+                "keycloak_user_lookup_failed",
+                email=email,
+                error=str(e)
+            )
+            raise SequenceException(
+                error_code=SequenceErrorCode.KEYCLOAK_ERROR,
+                message="Failed to lookup user"
+            )
+        except Exception as e:
+            logger.error(
+                "user_lookup_failed",
+                email=email,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
+
+    async def verify_email(self, request: Request, email: str) -> Dict[str, Any]:
+        """Verify email with improved error handling"""
+        try:
+            # Rate limit check
+            is_limited = await rate_limiter.is_rate_limited(
+                request=request,
+                rate_limit_type="verify_email",
+                settings=settings
+            )
+            if is_limited:
+                raise SequenceException(
+                    error_code=SequenceErrorCode.RATE_LIMIT,
+                    message="Too many email verification attempts",
+                    retry_after=300
+                )
+
+            admin = await self.get_admin()
+            users = await asyncio.to_thread(admin.get_users, {"email": email})
+
+            if not users:
+                raise SequenceException(
+                    error_code=SequenceErrorCode.DATA_NOT_FOUND,
+                    message="User not found"
+                )
+
+            user_id = users[0]['id']
+            await asyncio.to_thread(
+                admin.update_user,
+                user_id=user_id,
+                payload={"emailVerified": True}
+            )
+
+            logger.info("email_verified", email=email, user_id=user_id)
+            return {"message": "Email verified successfully"}
+
+        except KeycloakError as e:
+            logger.error(
+                "email_verification_failed",
+                email=email,
+                error=str(e)
+            )
+            raise SequenceException(
+                error_code=SequenceErrorCode.KEYCLOAK_ERROR,
+                message="Failed to verify email"
+            )
+
+    async def generate_otp(self) -> str:
+        """Generate secure OTP"""
+        return ''.join(secrets.choice('0123456789') for _ in range(6))
+
+    async def store_otp(
+        self,
+        request: Request,
+        email: str,
+        otp: str,
+        expiry: int = 600
+    ) -> bool:
+        """Store OTP with rate limiting"""
+        try:
+            # Rate limit check
+            is_limited = await rate_limiter.is_rate_limited(
+                request=request,
+                rate_limit_type="send_otp",
+                settings=settings
+            )
+            if is_limited:
+                raise SequenceException(
+                    error_code=SequenceErrorCode.RATE_LIMIT,
+                    message="Too many OTP requests",
+                    retry_after=300
+                )
+
+            otp_key = f"{self.cache_prefix}otp:{email}"
+            attempts_key = f"{self.cache_prefix}otp:attempts:{email}"
+
+            # Store OTP with attempts tracking
+            async with RedisLock(f"otp_store:{email}"):
+                await cache.set(otp_key, otp, expiry=expiry)
+                await cache.set(attempts_key, "0", expiry=expiry)
+
+            return True
+
+        except Exception as e:
+            logger.error(
+                "otp_storage_failed",
+                email=email,
+                error=str(e)
+            )
+            raise
+
+    async def verify_otp(
+        self,
+        request: Request,
+        email: str,
+        otp: str,
+        max_attempts: int = 3
+    ) -> Dict[str, bool]:
+        """Verify OTP with attempt limiting"""
+        try:
+            # Rate limit check
+            is_limited = await rate_limiter.is_rate_limited(
+                request=request,
+                rate_limit_type="verify_email",
+                settings=settings
+            )
+            if is_limited:
+                raise SequenceException(
+                    error_code=SequenceErrorCode.RATE_LIMIT,
+                    message="Too many verification attempts",
+                    retry_after=300
+                )
+
+            otp_key = f"{self.cache_prefix}otp:{email}"
+            attempts_key = f"{self.cache_prefix}otp:attempts:{email}"
+
+            stored_otp = await cache.get(otp_key)
+            if not stored_otp:
+                return {"valid": False, "message": "OTP expired or not found"}
+
+            async with RedisLock(f"otp_verify:{email}"):
+                attempts = int(await cache.get(attempts_key) or 0)
+                if attempts >= max_attempts:
+                    return {
+                        "valid": False,
+                        "message": "Maximum verification attempts exceeded"
+                    }
+
+                if stored_otp == otp:
+                    await cache.delete(otp_key)
+                    await cache.delete(attempts_key)
+                    return {"valid": True, "message": "OTP verified successfully"}
+
+                # Increment attempts
+                await cache.set(
+                    attempts_key,
+                    str(attempts + 1),
+                    expiry=600
+                )
+
+                return {
+                    "valid": False,
+                    "message": f"Invalid OTP. {max_attempts - attempts - 1} attempts remaining"
+                }
+
+        except Exception as e:
+            logger.error(
+                "otp_verification_failed",
+                email=email,
+                error=str(e)
+            )
+            raise
+
+# Export authentication service instance
+auth_service = ECitizenAuthService()
+
+__all__ = ['auth_service']

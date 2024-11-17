@@ -1,4 +1,10 @@
 # services/__init__.py
+from .rate_limiter import RateLimiter
+from .dify_chat import ChatService
+from .twilio_auth import MessagingService
+from .rate_limiter import RateLimiter
+from .email_service import EmailService
+
 from .ecitizen_auth import (
     KeycloakOperationError,
     create_keycloak_admin,
@@ -12,12 +18,16 @@ from .ecitizen_auth import (
     verify_otp,
     store_temp_data,
     get_temp_data,
-    delete_temp_data,
-    rate_limiter,
-    RateLimiter
+    delete_temp_data
 )
-from .dify_chat import ChatService
-from .twilio_auth import MessagingService
+
+from .sequence_manager import (
+    sequence_manager,
+    AccountCreationStep,
+    SequenceManager,
+    TransactionManager,
+    STEP_VALIDATORS
+)
 
 # Create an instance of the auth service
 class EcitzenAuthService:
@@ -35,11 +45,37 @@ class EcitzenAuthService:
         self.get_temp_data = get_temp_data
         self.delete_temp_data = delete_temp_data
 
+# List all public exports
 __all__ = [
+    # Services
     'ChatService',
     'MessagingService',
     'EcitzenAuthService',
-    'KeycloakOperationError',
+
+    # Sequence Management
+    'sequence_manager',
+    'AccountCreationStep',
+    'SequenceManager',
+    'TransactionManager',
+    'STEP_VALIDATORS',
+
+    # Auth Related
     'RateLimiter',
-    'rate_limiter'
+    'KeycloakOperationError',
+    'create_keycloak_admin',
+    'get_user_by_email_or_username',
+    'get_user_by_phone_or_username',
+    'create_user_with_phone',
+    'verify_email',
+    'generate_otp',
+    'store_otp',
+    'verify_otp',
+    'store_temp_data',
+    'get_temp_data',
+    'delete_temp_data'
+
+    # Data Management
+    'store_temp_data',
+    'get_temp_data',
+    'delete_temp_data'
 ]

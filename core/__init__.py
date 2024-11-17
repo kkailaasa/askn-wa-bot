@@ -1,3 +1,17 @@
-from .config import Settings
+# core/__init__.py
 
-__all__ = ['Settings']
+from .config import Settings
+from .sequence_errors import (
+    SequenceStatus,
+    SequenceErrorCode,
+    SequenceResponse,
+    SequenceException
+)
+
+__all__ = [
+    'Settings',
+    'SequenceStatus',
+    'SequenceErrorCode',
+    'SequenceResponse',
+    'SequenceException'
+]

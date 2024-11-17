@@ -243,6 +243,29 @@ curl -X POST 'https://your-api-domain.com/message' \
   --data-urlencode 'Body=Hello, this is a test message from Twilio!'
 ```
 
+**Fetching Info on E-Citizen**
+```bash
+# Get user info by email
+curl -X POST http://localhost:7262/get_user_info \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -d '{
+    "identifier": "user@example.com",
+    "identifier_type": "email"
+  }'
+
+# Get user info by phone
+curl -X POST http://localhost:7262/get_user_info \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -d '{
+    "identifier": "+1234567890",
+    "identifier_type": "phone"
+  }'
+
+
+```
+
 ## Error Responses
 
 ### Rate Limit Exceeded

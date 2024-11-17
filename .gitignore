@@ -47,6 +47,7 @@ Thumbs.db
 
 # Environment variables
 .env
+.env.old
 
 # Project specific
 *.pid

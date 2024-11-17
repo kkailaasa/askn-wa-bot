@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Verification</title>
+    <style>
+        /* Reset CSS */
+        body, div, p, h1, h2 {
+            margin: 0;
+            padding: 0;
+        }
+
+        /* Base Styles */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            background-color: #f5f5f5;
+        }
+
+        /* Container */
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #ffffff;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            background-color: #4F46E5;
+            color: #ffffff;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        /* Content */
+        .content {
+            padding: 30px;
+            background-color: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 0 0 8px 8px;
+        }
+
+        .welcome-text {
+            font-size: 16px;
+            color: #4B5563;
+            margin-bottom: 25px;
+        }
+
+        /* OTP Container */
+        .otp-container {
+            text-align: center;
+            margin: 30px 0;
+            padding: 20px;
+            background-color: #F3F4F6;
+            border-radius: 8px;
+        }
+
+        .otp-code {
+            font-size: 32px;
+            font-weight: bold;
+            letter-spacing: 4px;
+            color: #4F46E5;
+            padding: 10px;
+            background-color: #ffffff;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        /* Instructions */
+        .instructions {
+            font-size: 14px;
+            color: #6B7280;
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #F9FAFB;
+            border-left: 4px solid #4F46E5;
+            border-radius: 4px;
+        }
+
+        /* Footer */
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            text-align: center;
+            font-size: 12px;
+            color: #9CA3AF;
+        }
+
+        /* Utils */
+        .expiry-text {
+            color: #DC2626;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        /* Responsive Design */
+        @media only screen and (max-width: 600px) {
+            .email-container {
+                width: 100%;
+                padding: 10px;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .otp-code {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1>Email Verification</h1>
+        </div>
+        <div class="content">
+            <p class="welcome-text">
+                Hello!
+            </p>
+            <p>
+                Thank you for signing up. To complete your registration, please use the following verification code:
+            </p>
+            
+            <div class="otp-container">
+                <div class="otp-code">{otp_code}</div>
+                <p class="expiry-text">Code expires in 10 minutes</p>
+            </div>
+
+            <div class="instructions">
+                <p><strong>Instructions:</strong></p>
+                <ul>
+                    <li>Enter this code in the verification window</li>
+                    <li>Don't share this code with anyone</li>
+                    <li>The code is valid for 10 minutes only</li>
+                </ul>
+            </div>
+
+            <p>
+                If you didn't request this verification code, please ignore this email.
+            </p>
+
+            <div class="footer">
+                <p>This is an automated message, please do not reply to this email.</p>
+                <p>&copy; {current_year} Your Company Name. All rights reserved.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -18,7 +18,7 @@ services:
 
   celery_worker:
     build: .
-    command: celery -A tasks worker --loglevel=info
+    command: celery -A tasks.celery_tasks worker -Q high,default,low --loglevel=info
     depends_on:
       - redis
       - db
@@ -70,3 +70,10 @@ networks:
 volumes:
   redis_data:
   postgres_data:
+
+deploy:
+  resources:
+    limits:
+      memory: 4G
+    reservations:
+      memory: 512M

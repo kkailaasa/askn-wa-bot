@@ -20,7 +20,7 @@ class HybridLoadBalancer:
         self.current_index_key = "lb:current_index"
         # High load threshold (messages per second)
         self.high_load_threshold = settings.MAX_MESSAGES_PER_SECOND * 0.8  # 80% of max
-        
+
     def get_number_load(self, number: str) -> float:
         """Get current load for a number"""
         try:
@@ -64,10 +64,10 @@ class HybridLoadBalancer:
         try:
             # Get current loads
             loads = {num: self.get_number_load(num) for num in numbers}
-            
+
             # Check system load status
             high_load = self.is_system_under_high_load(loads)
-            
+
             if high_load:
                 # Under high load, use least loaded number
                 selected = self.get_least_loaded_number(loads)
@@ -90,24 +90,24 @@ def select_number() -> str:
     """Main interface for number selection"""
     lb = HybridLoadBalancer(redis_client)
     selected, loads = lb.select_number()
-    
+
     # Log selection for monitoring
     logger.info(f"Number selected: {selected}, Current loads: {loads}")
-    
+
     return selected
 
 def increment_number_load(phone_number: str):
     """Increment message count for a number"""
     timestamp = int(time.time())
     key = f"msg_count:{phone_number}"
-    
+
     pipe = redis_client.pipeline()
     pipe.incr(key)
     pipe.expire(key, 1)  # Expire after 1 second for per-second counting
     pipe.execute()
-    
+
     current_load = float(redis_client.get(key) or 0)
-    
+
     # Log to database if load is high
     if current_load >= settings.MAX_MESSAGES_PER_SECOND * 0.8:
         db = SessionLocal()
@@ -118,7 +118,7 @@ def increment_number_load(phone_number: str):
             )
             db.add(stats)
             db.commit()
-            
+
             # Alert if load is very high
             if current_load >= settings.MAX_MESSAGES_PER_SECOND:
                 send_mattermost_alert(phone_number, current_load)
@@ -131,7 +131,7 @@ async def send_mattermost_alert(phone_number: str, current_load: float):
         "text": f"⚠️ WARNING: WhatsApp number {phone_number} is experiencing high load "
                 f"({current_load:.2f} msgs/sec)"
     }
-    
+
     async with httpx.AsyncClient() as client:
         try:
             await client.post(settings.MATTERMOST_WEBHOOK_URL, json=message)
@@ -149,7 +149,7 @@ async def signup(request: Request):
     """Handle signup redirects to WhatsApp"""
     selected_number = select_number()
     increment_number_load(selected_number)
-    
+
     # Log the redirect
     db = SessionLocal()
     try:
@@ -167,11 +167,11 @@ async def signup(request: Request):
         db.commit()
     finally:
         db.close()
-    
+
     # Format WhatsApp URL
     wa_number = selected_number.replace("whatsapp:", "").replace("+", "")
     redirect_url = f"https://wa.me/{wa_number}"
-    
+
     return RedirectResponse(url=redirect_url)
 
 @router.get("/load-stats")

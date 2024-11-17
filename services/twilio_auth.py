@@ -96,22 +96,24 @@ class MessagingService:
             raise
 
     def format_phone_number(self, phone_number: str, add_whatsapp: bool = True) -> str:
-        """Format phone number for Twilio WhatsApp messaging."""
-        self.logger.debug(f"Formatting phone number: {phone_number} (add_whatsapp={add_whatsapp})")
-
-        # Remove any existing prefixes and whitespace
-        phone_number = phone_number.replace("whatsapp:", "").strip()
-
-        # Ensure it starts with +
-        if not phone_number.startswith('+'):
-            phone_number = f"+{phone_number}"
-
-        # Add WhatsApp prefix if needed
+        """Format phone number with better validation."""
+        if not phone_number:
+            raise ValueError("Phone number cannot be empty")
+            
+        # Remove all non-digit characters except +
+        cleaned = re.sub(r'[^\d+]', '', phone_number.strip())
+        
+        # Ensure it starts with + if it doesn't
+        if not cleaned.startswith('+'):
+            cleaned = f"+{cleaned}"
+            
+        # Validate length
+        if len(re.sub(r'[^\d]', '', cleaned)) < 10:
+            raise ValueError("Phone number too short")
+            
         if add_whatsapp:
-            phone_number = f"whatsapp:{phone_number}"
-
-        self.logger.debug(f"Formatted phone number result: {phone_number}")
-        return phone_number
+            return f"whatsapp:{cleaned}"
+        return cleaned
 
     def validate_phone_number(self, phone_number: str) -> bool:
         """Basic validation for phone numbers."""
