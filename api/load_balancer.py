@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, Depends
+from fastapi import APIRouter, Request, Response, Depends, BackgroundTasks, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 from typing import Dict, List, Optional, Tuple
 import httpx
@@ -9,6 +9,7 @@ from db_scripts.base import SessionLocal
 from core.config import settings
 from services.auth import get_api_key
 from utils.redis_helpers import redis_client
+from datetime import datetime
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -180,7 +181,8 @@ def increment_number_load(phone_number: str):
             try:
                 stats = NumberLoadStats(
                     phone_number=phone_number,
-                    messages_per_second=current_load
+                    messages_per_second=current_load,
+                    timestamp=datetime.utcnow()
                 )
                 db.add(stats)
                 db.commit()
@@ -191,31 +193,58 @@ def increment_number_load(phone_number: str):
             finally:
                 db.close()
     except Exception as e:
-        logger.error(f"Error incrementing load: {e}", exc_info=True)
+        logger.error(
+            "increment_load_failed",
+            phone_number=phone_number,
+            error=str(e),
+            exc_info=True
+        )
 
 async def send_mattermost_alert(phone_number: str, current_load: float):
     """Send alert to Mattermost when load exceeds threshold"""
     if not settings.MATTERMOST_WEBHOOK_URL:
-        logger.warning("Mattermost webhook URL not configured")
+        logger.warning("mattermost_webhook_not_configured")
         return
 
-    message = {
-        "text": f"⚠️ WARNING: WhatsApp number {phone_number} is experiencing high load "
-                f"({current_load:.2f} msgs/sec)"
-    }
-
     try:
+        message = {
+            "text": f"⚠️ WARNING: WhatsApp number {phone_number} is experiencing high load "
+                   f"({current_load:.2f} msgs/sec)"
+        }
+
         async with httpx.AsyncClient() as client:
-            await client.post(settings.MATTERMOST_WEBHOOK_URL, json=message)
+            response = await client.post(
+                settings.MATTERMOST_WEBHOOK_URL,
+                json=message,
+                timeout=5.0
+            )
+            
+            if response.status_code != 200:
+                logger.error(
+                    "mattermost_alert_failed",
+                    status_code=response.status_code,
+                    response=response.text
+                )
     except Exception as e:
-        logger.error(f"Failed to send Mattermost alert: {str(e)}", exc_info=True)
+        logger.error(
+            "mattermost_alert_failed",
+            error=str(e),
+            exc_info=True
+        )
 
 @router.get("/signup")
 async def signup(request: Request, background_tasks: BackgroundTasks):
     """Handle signup redirects to WhatsApp"""
     try:
         selected_number, current_loads = load_balancer.select_number()
-        increment_number_load(selected_number)
+        
+        if not selected_number:
+            raise HTTPException(
+                status_code=503,
+                detail="No WhatsApp numbers available"
+            )
+
+        background_tasks.add_task(increment_number_load, selected_number)
 
         # Log the redirect
         db = SessionLocal()
@@ -225,6 +254,7 @@ async def signup(request: Request, background_tasks: BackgroundTasks):
                 user_agent=request.headers.get("user-agent"),
                 referrer=request.headers.get("referer"),
                 assigned_number=selected_number,
+                request_timestamp=datetime.utcnow(),
                 additional_data={
                     "headers": dict(request.headers),
                     "query_params": dict(request.query_params),
@@ -233,17 +263,37 @@ async def signup(request: Request, background_tasks: BackgroundTasks):
             )
             db.add(log)
             db.commit()
+
+            # Format WhatsApp URL
+            wa_number = selected_number.replace("whatsapp:", "").replace("+", "").strip()
+            redirect_url = f"https://wa.me/{wa_number}"
+
+            logger.info(
+                "signup_redirect",
+                assigned_number=selected_number,
+                client_ip=request.client.host,
+                redirect_url=redirect_url
+            )
+
+            return RedirectResponse(url=redirect_url)
+
+        except Exception as e:
+            db.rollback()
+            logger.error(
+                "signup_db_error",
+                error=str(e),
+                exc_info=True
+            )
+            raise
         finally:
             db.close()
 
-        # Format WhatsApp URL
-        wa_number = selected_number.replace("whatsapp:", "").replace("+", "").strip()
-        redirect_url = f"https://wa.me/{wa_number}"
-
-        return RedirectResponse(url=redirect_url)
-
     except Exception as e:
-        logger.error(f"Error in signup endpoint: {str(e)}", exc_info=True)
+        logger.error(
+            "signup_failed",
+            error=str(e),
+            exc_info=True
+        )
         return JSONResponse(
             status_code=500,
             content={"error": "Internal server error"}
@@ -256,11 +306,25 @@ async def get_load_stats(
 ) -> Dict[str, float]:
     """Get current load statistics for all numbers"""
     try:
-        numbers = settings.TWILIO_NUMBERS.split(',') if settings.TWILIO_NUMBERS else []
-        return {
+        numbers = settings.TWILIO_NUMBERS.split(',')
+        stats = {
             number.strip(): load_balancer.get_number_load(number.strip())
             for number in numbers
         }
+
+        logger.info(
+            "load_stats_retrieved",
+            stats=stats
+        )
+
+        return stats
     except Exception as e:
-        logger.error(f"Error getting load stats: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error getting load statistics")
+        logger.error(
+            "load_stats_failed",
+            error=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Error getting load statistics"
+        )
