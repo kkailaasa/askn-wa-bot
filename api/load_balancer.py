@@ -3,7 +3,6 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from typing import Dict, List, Optional, Tuple
 import httpx
 import time
-import logging
 import structlog
 from db_scripts.load_balancer import LoadBalancerLog, NumberLoadStats
 from db_scripts.base import SessionLocal
@@ -11,11 +10,8 @@ from core.config import settings
 from services.auth import get_api_key
 from utils.redis_helpers import redis_client
 
-
-logger = structlog.get_logger(__name__)
-
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 class HybridLoadBalancer:
     def __init__(self):
@@ -29,20 +25,33 @@ class HybridLoadBalancer:
         self.alert_threshold = int(self.max_messages * settings.LOAD_BALANCER_ALERT_THRESHOLD)
         self.stats_window = settings.LOAD_BALANCER_STATS_WINDOW
 
-        logger.info(
-            "Load balancer initialized",
+        # Use structlog's bind to create a logger with context
+        self.logger = logger.bind(
+            component="load_balancer",
             max_messages=self.max_messages,
             high_threshold=self.high_threshold,
             alert_threshold=self.alert_threshold,
             stats_window=self.stats_window
         )
 
+        self.logger.info("load_balancer_initialized")
+
     def is_system_under_high_load(self, loads: Dict[str, float]) -> bool:
         """Check if system is under high load"""
         try:
-            return any(load > self.high_threshold for load in loads.values())
+            is_high = any(load > self.high_threshold for load in loads.values())
+            self.logger.debug(
+                "system_load_check",
+                loads=loads,
+                is_high_load=is_high
+            )
+            return is_high
         except Exception as e:
-            logger.error(f"Error checking system load: {e}", exc_info=True)
+            self.logger.error(
+                "system_load_check_failed",
+                error=str(e),
+                exc_info=True
+            )
             return True  # Safely assume high load in case of error
 
     def get_number_load(self, number: str) -> float:
@@ -50,22 +59,21 @@ class HybridLoadBalancer:
         try:
             key = f"msg_count:{number}"
             count = self.redis_client.get(key)
-            return float(count or 0)
-        except Exception as e:
-            logger.error(f"Redis error getting load: {e}", exc_info=True)
-            return 0.0
-
-    def log_balancer_decision(self, selected_number: str, loads: Dict[str, float], is_high_load: bool):
-        """Log load balancer decisions"""
-        try:
-            logger.info(
-                "load_balancer_decision",
-                selected_number=selected_number,
-                current_loads=loads,
-                is_high_load=is_high_load
+            load = float(count or 0)
+            self.logger.debug(
+                "number_load_check",
+                number=number,
+                load=load
             )
+            return load
         except Exception as e:
-            logger.error(f"Error logging balancer decision: {e}", exc_info=True)
+            self.logger.error(
+                "get_number_load_failed",
+                number=number,
+                error=str(e),
+                exc_info=True
+            )
+            return 0.0
 
     def get_round_robin_number(self, numbers: List[str]) -> str:
         """Get next number using round-robin"""
@@ -74,26 +82,47 @@ class HybridLoadBalancer:
             if current_index >= len(numbers):
                 self.redis_client.set(self.current_index_key, 0)
                 current_index = 0
-            return numbers[current_index]
+            selected = numbers[current_index]
+            self.logger.debug(
+                "round_robin_selection",
+                selected_number=selected,
+                current_index=current_index
+            )
+            return selected
         except Exception as e:
-            logger.error(f"Redis error in round-robin: {e}", exc_info=True)
-            return numbers[int(time.time()) % len(numbers)]
+            self.logger.error(
+                "round_robin_selection_failed",
+                error=str(e),
+                exc_info=True
+            )
+            fallback = numbers[int(time.time()) % len(numbers)]
+            return fallback
 
     def get_least_loaded_number(self, loads: Dict[str, float]) -> str:
         """Get the least loaded number"""
         try:
-            return min(loads.items(), key=lambda x: x[1])[0]
+            selected = min(loads.items(), key=lambda x: x[1])[0]
+            self.logger.debug(
+                "least_loaded_selection",
+                selected_number=selected,
+                loads=loads
+            )
+            return selected
         except Exception as e:
-            logger.error(f"Error getting least loaded number: {e}", exc_info=True)
-            return list(loads.keys())[0]
+            self.logger.error(
+                "least_loaded_selection_failed",
+                error=str(e),
+                exc_info=True
+            )
+            return list(loads.keys())[0]  # Return first number as fallback
 
     def select_number(self) -> Tuple[str, Dict[str, float]]:
         """Select the best number using hybrid approach"""
-        numbers = settings.TWILIO_NUMBERS.split(',') if settings.TWILIO_NUMBERS else []
-        if not numbers:
-            raise ValueError("No WhatsApp numbers configured")
-
         try:
+            numbers = settings.TWILIO_NUMBERS.split(',') if settings.TWILIO_NUMBERS else []
+            if not numbers:
+                raise ValueError("No WhatsApp numbers configured")
+
             # Get current loads
             loads = {num.strip(): self.get_number_load(num.strip()) for num in numbers}
 
@@ -102,18 +131,32 @@ class HybridLoadBalancer:
 
             if high_load:
                 selected = self.get_least_loaded_number(loads)
-                logger.info(f"High load detected, using least loaded number: {selected}")
+                self.logger.info(
+                    "load_balancer_decision",
+                    decision_type="least_loaded",
+                    selected_number=selected,
+                    loads=loads
+                )
             else:
                 selected = self.get_round_robin_number(numbers)
-                logger.info(f"Normal load, using round-robin number: {selected}")
+                self.logger.info(
+                    "load_balancer_decision",
+                    decision_type="round_robin",
+                    selected_number=selected,
+                    loads=loads
+                )
 
-            return selected, loads
+            return selected.strip(), loads
 
         except Exception as e:
-            logger.error(f"Error in number selection: {e}", exc_info=True)
-            fallback = numbers[int(time.time()) % len(numbers)]
-            logger.info(f"Using fallback number: {fallback}")
-            return fallback.strip(), {}
+            self.logger.error(
+                "number_selection_failed",
+                error=str(e),
+                exc_info=True
+            )
+            # Fallback to first number
+            fallback = numbers[0].strip() if numbers else ""
+            return fallback, {}
 
 # Initialize the load balancer
 load_balancer = HybridLoadBalancer()

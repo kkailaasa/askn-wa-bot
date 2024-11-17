@@ -52,30 +52,15 @@ def custom_json_processor(_, __, event_dict):
 # Configure structlog
 structlog.configure(
     processors=[
-        # Add log level
         structlog.stdlib.add_log_level,
-        # Add timestamp
         structlog.processors.TimeStamper(fmt="iso"),
-        # Add caller info
-        structlog.processors.CallsiteParameterAdder(
-            parameters={"func_name", "lineno", "pathname"}
-        ),
-        # Add process/thread IDs
-        structlog.processors.ThreadIDProcessor(),
-        # Add hostname
-        lambda _, __, ed: dict(ed, hostname=socket.gethostname()),
-        # Add stack info for errors
         structlog.processors.StackInfoRenderer(),
-        # Format exceptions
         structlog.processors.format_exc_info,
-        # Process any remaining JSON
-        custom_json_processor,
-        # Output as JSON
-        structlog.processors.JSONRenderer(ensure_ascii=False)
+        structlog.processors.JSONRenderer()
     ],
-    wrapper_class=structlog.make_filtering_bound_logger(logging_level),
     context_class=dict,
     logger_factory=structlog.PrintLoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
     cache_logger_on_first_use=True
 )
 
