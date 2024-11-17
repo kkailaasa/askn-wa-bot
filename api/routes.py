@@ -26,8 +26,7 @@ from services import (
     MessagingService,
     ECitizenAuthService,
     sequence_manager,
-    AccountCreationStep,
-    rate_limiter
+    AccountCreationStep
 )
 
 # Utility imports
@@ -44,10 +43,8 @@ from utils import (
     validate_name_format,
     validate_gender,
     validate_country,
-    is_rate_limited,
-    get_remaining_limit
+    rate_limiter
 )
-
 # Task imports
 from tasks.celery_tasks import (
     process_message,
@@ -1177,24 +1174,32 @@ async def safe_task_execution(task_func, timeout: int = 15, **kwargs) -> Dict[st
             status_code=500
         )
 
-def validate_rate_limit(
-    key: str,
-    identifier: str,
-    limit_type: str = "create_user"
-) -> None:
+# Rate limiting helper function
+async def check_rate_limit(request: Request, rate_limit_type: str) -> None:
     """Check rate limit and raise exception if exceeded"""
-    rate_key = f"{key}:{identifier}"
-    if rate_limiter.is_rate_limited(
-        rate_key,
-        settings.rate_limit[limit_type]["limit"],
-        settings.rate_limit[limit_type]["period"]
-    ):
+    is_limited, retry_after = await rate_limiter.is_rate_limited(
+        request=request,
+        rate_limit_type=rate_limit_type,
+        settings=settings
+    )
+    
+    if is_limited:
         raise SequenceException(
             error_code=SequenceErrorCode.RATE_LIMIT,
-            message="Too many attempts",
+            message="Rate limit exceeded",
             status_code=429,
-            retry_after=rate_limiter.get_retry_after(rate_key)
+            retry_after=retry_after
         )
+
+# Get remaining limit helper function
+async def get_rate_limit_info(request: Request, rate_limit_type: str) -> Tuple[int, int]:
+    """Get remaining rate limit and reset time"""
+    remaining, reset_time = await rate_limiter.get_remaining_limit(
+        request=request,
+        rate_limit_type=rate_limit_type,
+        settings=settings
+    )
+    return remaining, reset_time
 
 @router.get("/health")
 async def health_check():

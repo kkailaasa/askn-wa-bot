@@ -1,12 +1,14 @@
 # utils/__init__.py
 
 from utils.redis_pool import get_redis_client
-redis_sync_client = get_redis_client()  # For any code that still needs sync client
+redis_sync_client = get_redis_client()
 
 from .redis_helpers import (
     redis_helper,
     rate_limiter,
     AsyncRedisLock,
+    AsyncCache,
+    RateLimiter,
     cleanup_expired_keys,
     cache
 )
@@ -38,6 +40,7 @@ __all__ = [
     'redis_sync_client',
     'rate_limiter',
     'AsyncRedisLock',
+    'AsyncCache',
     'cleanup_expired_keys',
     'cache',
 
