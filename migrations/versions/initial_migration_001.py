@@ -1,6 +1,6 @@
 """Initial migration
 Revision ID: 1a2b3c4d5e6f
-Revises: 
+Revises:
 Create Date: 2024-11-14 10:00:00.000000
 """
 from alembic import op
