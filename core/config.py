@@ -147,6 +147,7 @@ class Settings(BaseSettings):
     EMAIL_FROM: str
 
     # Load Balancer Settings
+    MAX_MESSAGES_PER_SECOND: int = 70
     LOAD_BALANCER_HIGH_THRESHOLD: float = 0.8  # 80% of max capacity
     LOAD_BALANCER_ALERT_THRESHOLD: float = 0.9  # 90% of max capacity
     LOAD_BALANCER_STATS_WINDOW: int = 60  # 1 minute window for stats
@@ -179,6 +180,22 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return value
         return ""
+
+    @validator('LOAD_BALANCER_HIGH_THRESHOLD', 'LOAD_BALANCER_ALERT_THRESHOLD')
+    def validate_thresholds(cls, v):
+        if not 0 < v < 1:
+            raise ValueError("Threshold must be between 0 and 1")
+        return v
+
+    @property
+    def load_balancer_config(self) -> Dict[str, Any]:
+        """Get load balancer configuration"""
+        return {
+            "max_messages": self.MAX_MESSAGES_PER_SECOND,
+            "high_threshold": int(self.MAX_MESSAGES_PER_SECOND * self.LOAD_BALANCER_HIGH_THRESHOLD),
+            "alert_threshold": int(self.MAX_MESSAGES_PER_SECOND * self.LOAD_BALANCER_ALERT_THRESHOLD),
+            "stats_window": self.LOAD_BALANCER_STATS_WINDOW
+        }
 
     @property
     def rate_limit_config(self) -> Dict[str, Dict[str, Any]]:

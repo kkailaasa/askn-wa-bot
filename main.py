@@ -83,7 +83,11 @@ structlog.configure(
 logger = structlog.get_logger()
 
 # Initialize settings
-settings = Settings()
+try:
+    settings = Settings()
+except ValidationError as e:
+    logger.error(f"Configuration error: {e}")
+    sys.exit(1)
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """Enhanced request/response logging middleware"""
@@ -405,6 +409,20 @@ async def health_check():
             "timestamp": datetime.utcnow().isoformat(),
             "error": str(e)
         }
+
+async def load_balancer_health():
+    try:
+        numbers = settings.TWILIO_NUMBERS.split(',')
+        loads = {num.strip(): load_balancer.get_number_load(num.strip()) for num in numbers}
+        return {
+            "status": "healthy",
+            "current_loads": loads,
+            "max_messages": settings.MAX_MESSAGES_PER_SECOND,
+            "high_threshold": load_balancer.high_threshold
+        }
+    except Exception as e:
+        logger.error(f"Load balancer health check failed: {e}")
+        return {"status": "unhealthy", "error": str(e)}
 
 async def check_redis_health() -> Dict[str, Any]:
     """Check Redis connection health"""

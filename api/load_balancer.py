@@ -4,11 +4,15 @@ from typing import Dict, List, Optional, Tuple
 import httpx
 import time
 import logging
+import structlog
 from db_scripts.load_balancer import LoadBalancerLog, NumberLoadStats
 from db_scripts.base import SessionLocal
 from core.config import settings
 from services.auth import get_api_key
 from utils.redis_helpers import redis_client
+
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -18,22 +22,28 @@ class HybridLoadBalancer:
         self.redis_client = redis_client
         self.current_index_key = "lb:current_index"
 
-        # Load settings with defaults
-        self.max_messages = getattr(settings, 'MAX_MESSAGES_PER_SECOND', 70)
-        self.high_threshold = getattr(settings, 'LOAD_BALANCER_HIGH_THRESHOLD', 0.8)
-        self.alert_threshold = getattr(settings, 'LOAD_BALANCER_ALERT_THRESHOLD', 0.9)
-        self.stats_window = getattr(settings, 'LOAD_BALANCER_STATS_WINDOW', 60)
-
-        # Calculate thresholds
-        self.high_load_threshold = self.max_messages * self.high_threshold
-        self.alert_threshold = self.max_messages * self.alert_threshold
+        # Load settings
+        self.config = settings.load_balancer_config
+        self.max_messages = settings.MAX_MESSAGES_PER_SECOND
+        self.high_threshold = int(self.max_messages * settings.LOAD_BALANCER_HIGH_THRESHOLD)
+        self.alert_threshold = int(self.max_messages * settings.LOAD_BALANCER_ALERT_THRESHOLD)
+        self.stats_window = settings.LOAD_BALANCER_STATS_WINDOW
 
         logger.info(
             "Load balancer initialized",
             max_messages=self.max_messages,
-            high_threshold=self.high_load_threshold,
-            alert_threshold=self.alert_threshold
+            high_threshold=self.high_threshold,
+            alert_threshold=self.alert_threshold,
+            stats_window=self.stats_window
         )
+
+    def is_system_under_high_load(self, loads: Dict[str, float]) -> bool:
+        """Check if system is under high load"""
+        try:
+            return any(load > self.high_threshold for load in loads.values())
+        except Exception as e:
+            logger.error(f"Error checking system load: {e}", exc_info=True)
+            return True  # Safely assume high load in case of error
 
     def get_number_load(self, number: str) -> float:
         """Get current load for a number"""
@@ -45,9 +55,17 @@ class HybridLoadBalancer:
             logger.error(f"Redis error getting load: {e}", exc_info=True)
             return 0.0
 
-    def is_system_under_high_load(self, loads: Dict[str, float]) -> bool:
-        """Check if system is under high load"""
-        return any(load > self.high_load_threshold for load in loads.values())
+    def log_balancer_decision(self, selected_number: str, loads: Dict[str, float], is_high_load: bool):
+        """Log load balancer decisions"""
+        try:
+            logger.info(
+                "load_balancer_decision",
+                selected_number=selected_number,
+                current_loads=loads,
+                is_high_load=is_high_load
+            )
+        except Exception as e:
+            logger.error(f"Error logging balancer decision: {e}", exc_info=True)
 
     def get_round_robin_number(self, numbers: List[str]) -> str:
         """Get next number using round-robin"""
@@ -63,7 +81,11 @@ class HybridLoadBalancer:
 
     def get_least_loaded_number(self, loads: Dict[str, float]) -> str:
         """Get the least loaded number"""
-        return min(loads.items(), key=lambda x: x[1])[0]
+        try:
+            return min(loads.items(), key=lambda x: x[1])[0]
+        except Exception as e:
+            logger.error(f"Error getting least loaded number: {e}", exc_info=True)
+            return list(loads.keys())[0]
 
     def select_number(self) -> Tuple[str, Dict[str, float]]:
         """Select the best number using hybrid approach"""
