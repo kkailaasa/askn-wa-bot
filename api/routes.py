@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 import structlog
 import functools
 from sqlalchemy.ext.asyncio import AsyncSession 
+from utils.redis_helpers import rate_limiter
 
 # Core imports
 from core.config import settings

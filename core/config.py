@@ -242,10 +242,10 @@ class Settings(BaseSettings):
             },
 
             "get_user_info": {
-            "limit": self.RATE_LIMIT_USER_INFO_LIMIT,  # e.g., 20
-            "period": self.RATE_LIMIT_USER_INFO_PERIOD,  # e.g., 300 (5 minutes)
+            "limit": self.RATE_LIMIT_USER_INFO_LIMIT,
+            "period": self.RATE_LIMIT_USER_INFO_PERIOD,
             "key_pattern": "rate_limit:user_info:{identifier}",
-            "identifier_type": "identifier"  # This will use the email or phone as identifier
+            "identifier_type": "identifier"
             },
 
             # Load Balancer Rate Limits
