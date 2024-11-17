@@ -8,7 +8,7 @@ from db_scripts.load_balancer import LoadBalancerLog, NumberLoadStats
 from db_scripts.base import SessionLocal
 from core.config import settings
 from services.auth import get_api_key
-from utils.redis_helpers import redis_client
+from utils.redis_helpers import redis_helper, cache
 from datetime import datetime
 
 router = APIRouter()
@@ -18,7 +18,7 @@ class HybridLoadBalancer:
     def __init__(self):
         self.redis_helper = redis_helper
         self.current_index_key = "lb:current_index"
-
+        
         # Load settings
         self.config = settings.load_balancer_config
         self.max_messages = settings.MAX_MESSAGES_PER_SECOND
