@@ -1,5 +1,8 @@
 # utils/__init__.py
 
+from utils.redis_pool import get_redis_client
+redis_client = get_redis_client()
+
 from .redis_helpers import (
     redis_client,
     rate_limiter,
@@ -44,8 +47,7 @@ __all__ = [
     'get_remaining_limit',
     'cache',
     'QueueManager',
-    'cleanup_expired_keys',
-    'CacheManager',
+    'cleanup_expired_keys'
 
     # Operation Helpers
     'safe_operation_execution',
