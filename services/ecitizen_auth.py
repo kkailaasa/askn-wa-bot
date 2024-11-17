@@ -404,4 +404,51 @@ class ECitizenAuthService:
 # Export authentication service instance
 auth_service = ECitizenAuthService()
 
-__all__ = ['auth_service']
+# Expose methods as module-level functions
+async def get_user_by_email_or_username(request, email):
+    return await auth_service.get_user_by_email_or_username(request, email)
+
+async def get_user_by_phone_or_username(request, phone):
+    return await auth_service.get_user_by_phone_or_username(request, phone)
+
+async def create_user_with_phone(request, **kwargs):
+    return await auth_service.create_user_with_phone(request, **kwargs)
+
+async def add_phone_attributes_to_user(user_id, attributes):
+    return await auth_service.add_phone_attributes_to_user(user_id, attributes)
+
+async def verify_email(request, email):
+    return await auth_service.verify_email(request, email)
+
+async def generate_otp():
+    return await auth_service.generate_otp()
+
+async def store_otp(request, email, otp):
+    return await auth_service.store_otp(request, email, otp)
+
+async def verify_otp(request, email, otp):
+    return await auth_service.verify_otp(request, email, otp)
+
+async def store_temp_data(key, data):
+    return await auth_service.store_temp_data(key, data)
+
+async def get_temp_data(key):
+    return await auth_service.get_temp_data(key)
+
+async def delete_temp_data(key):
+    return await auth_service.delete_temp_data(key)
+
+__all__ = [
+    'auth_service',
+    'get_user_by_email_or_username',
+    'get_user_by_phone_or_username',
+    'create_user_with_phone',
+    'add_phone_attributes_to_user',
+    'verify_email',
+    'generate_otp',
+    'store_otp',
+    'verify_otp',
+    'store_temp_data',
+    'get_temp_data',
+    'delete_temp_data'
+]
