@@ -6,7 +6,6 @@ from .rate_limiter import RateLimiter
 from .email_service import EmailService
 
 from .ecitizen_auth import (
-    KeycloakOperationError,
     auth_service,
     ECitizenAuthService,
     KeycloakTokenManager,
@@ -39,7 +38,6 @@ __all__ = [
     'STEP_VALIDATORS',
 
     # Auth Related
-    'KeycloakOperationError',
     'KeycloakTokenManager',
     'KeycloakHealthMonitor'
 ]

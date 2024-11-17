@@ -8,9 +8,9 @@ from services import (
     auth_service,
     sequence_manager,
     AccountCreationStep,
-    email_service,
-    KeycloakOperationError
+    email_service
 )
+
 from utils.redis_pool import get_redis_client
 import time
 import asyncio

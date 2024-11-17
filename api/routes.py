@@ -27,8 +27,7 @@ from services import (
     EcitzenAuthService,
     sequence_manager,
     AccountCreationStep,
-    rate_limiter,
-    KeycloakOperationError
+    rate_limiter
 )
 
 # Utility imports
