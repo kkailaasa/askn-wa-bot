@@ -260,7 +260,7 @@ app.add_middleware(
 )
 
 # Mount signup endpoint at root level
-app.add_route("/signup", signup_endpoint, methods=["GET"])
+app.add_api_route("/signup", signup_endpoint, methods=["GET"])
 
 # Mount other routers with prefixes
 app.include_router(router, prefix="/api")
@@ -336,11 +336,15 @@ async def global_exception_handler(request: Request, exc: Exception):
         traceback=True
     )
 
-    await log_error(
-        error_type=type(exc).__name__,
-        error_message=str(exc),
-        metadata=error_details
-    )
+    # Use async version of log_error
+    try:
+        await log_error(
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            metadata=error_details
+        )
+    except Exception as log_error:
+        logger.error(f"Failed to log error: {str(log_error)}")
 
     return JSONResponse(
         status_code=500,
