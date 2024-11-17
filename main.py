@@ -35,6 +35,7 @@ import socket
 import platform
 import psutil
 from pathlib import Path
+import redis.asyncio as redis_async 
 
 # Configure logging level based on environment
 logging_level = logging.DEBUG if Settings().DEBUG else logging.INFO
@@ -162,7 +163,6 @@ async def init_redis() -> redis_async.Redis:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Enhanced application lifespan manager"""
     # Startup
     logger.info(
         "application_startup",
@@ -200,6 +200,10 @@ async def lifespan(app: FastAPI):
         # Create required directories
         Path("logs").mkdir(exist_ok=True)
         Path("temp").mkdir(exist_ok=True)
+        Path("templates").mkdir(exist_ok=True)
+
+        # Initialize email templates
+        await email_service.initialize_templates()
 
         logger.info("application_startup_completed")
 
