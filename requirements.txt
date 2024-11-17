@@ -26,3 +26,4 @@ fastapi-cache2
 psutil
 jinja2
 aiofiles
+redis[hiredis]>=4.2.0

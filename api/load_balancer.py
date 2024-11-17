@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 
 class HybridLoadBalancer:
     def __init__(self):
-        self.redis_client = redis_client
+        self.redis_helper = AsyncRedisHelper()
         self.current_index_key = "lb:current_index"
 
         # Load settings

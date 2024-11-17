@@ -149,6 +149,17 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         except Exception:
             raise
 
+# Create async Redis client
+async def init_redis() -> redis_async.Redis:
+    return redis_async.Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        db=0,
+        decode_responses=True,
+        socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
+        socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT
+    )
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Enhanced application lifespan manager"""
@@ -161,58 +172,58 @@ async def lifespan(app: FastAPI):
     )
 
     try:
-        # Initialize Redis
-        redis_client = get_redis_client()
-        await redis_client.ping()
+        # Initialize Redis async client
+        app.state.redis = await init_redis()
+
+        # Test Redis connection
+        await app.state.redis.ping()
+        logger.info("redis_connection_established")
 
         # Clean stale data
-        await cleanup_expired_keys("sequence:*")
-        await cleanup_expired_keys("lock:*")
+        async for key in app.state.redis.scan_iter("sequence:*"):
+            await app.state.redis.delete(key)
+        async for key in app.state.redis.scan_iter("lock:*"):
+            await app.state.redis.delete(key)
 
-        # Additional startup tasks
-        await app_startup_tasks()
+        # Initialize health check cache
+        health_status = {
+            'status': 'starting',
+            'startup_time': datetime.utcnow().isoformat(),
+            'version': settings.APP_VERSION
+        }
+        await app.state.redis.setex(
+            'health:status',
+            3600,
+            json.dumps(health_status)
+        )
+
+        # Create required directories
+        Path("logs").mkdir(exist_ok=True)
+        Path("temp").mkdir(exist_ok=True)
+
+        logger.info("application_startup_completed")
 
     except Exception as e:
         logger.error("startup_failed", error=str(e))
         raise
 
-    yield
-
-    # Shutdown
-    logger.info("application_shutdown")
     try:
-        await app_shutdown_tasks()
-    except Exception as e:
-        logger.error("shutdown_error", error=str(e))
+        yield
+    finally:
+        # Shutdown
+        logger.info("application_shutdown_started")
+        try:
+            # Close Redis connection
+            await app.state.redis.close()
+            logger.info("redis_connection_closed")
 
-async def app_startup_tasks():
-    """Additional startup tasks"""
-    # Create required directories
-    Path("logs").mkdir(exist_ok=True)
-    Path("temp").mkdir(exist_ok=True)
+            # Clean temporary files
+            for temp_file in Path("temp").glob("*"):
+                temp_file.unlink()
 
-    # Initialize health check cache
-    await initialize_health_status()
-
-async def app_shutdown_tasks():
-    """Additional shutdown tasks"""
-    # Close pools
-    http_pool.close_all()
-    redis_pool.close()
-
-    # Clean temporary files
-    for temp_file in Path("temp").glob("*"):
-        temp_file.unlink()
-
-async def initialize_health_status():
-    """Initialize health check status"""
-    health_status = {
-        'status': 'starting',
-        'startup_time': datetime.utcnow().isoformat(),
-        'version': settings.APP_VERSION
-    }
-    redis_client = get_redis_client()
-    await redis_client.setex('health:status', 3600, json.dumps(health_status))
+            logger.info("application_shutdown_completed")
+        except Exception as e:
+            logger.error("shutdown_error", error=str(e))
 
 # Initialize FastAPI application
 app = FastAPI(

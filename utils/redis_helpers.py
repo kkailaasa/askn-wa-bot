@@ -1,47 +1,121 @@
 # utils/redis_helpers.py
 
-from utils.redis_pool import get_redis_client
-from core.config import settings
-from services.rate_limiter import RateLimiter
-from typing import Tuple, Dict, Any, Optional, List, Union
-from fastapi import Request
-import logging
+import redis.asyncio as redis_async
+from typing import Optional, Any, Dict, List, Union, Tuple
 import json
-import time
-import asyncio
+import structlog
 from datetime import datetime
-from redis.exceptions import (
-    RedisError,
-    WatchError,
-    ConnectionError,
-    TimeoutError,
-    LockError
-)
-from core.sequence_errors import (
-    SequenceException,
-    SequenceErrorCode,
-    handle_sequence_error
-)
+import asyncio
+from core.config import settings
+from core.sequence_errors import SequenceException, SequenceErrorCode
+from fastapi import Request
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
-redis_client = get_redis_client()
-rate_limiter = RateLimiter(redis_client)
+class AsyncRedisHelper:
+    """Singleton Redis connection manager"""
+    _instance = None
+    _redis: Optional[redis_async.Redis] = None
+    _pool: Optional[redis_async.ConnectionPool] = None
 
-class RedisLock:
-    """Enhanced distributed lock implementation"""
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(AsyncRedisHelper, cls).__new__(cls)
+        return cls._instance
+
+    async def init_pool(self) -> redis_async.ConnectionPool:
+        """Initialize connection pool"""
+        if self._pool is None:
+            self._pool = redis_async.ConnectionPool(
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                db=0,
+                decode_responses=True,
+                socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
+                socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT,
+                max_connections=settings.REDIS_MAX_CONNECTIONS,
+                retry_on_timeout=True,
+                health_check_interval=30
+            )
+        return self._pool
+
+    async def init_redis(self) -> redis_async.Redis:
+        """Initialize Redis connection"""
+        if self._redis is None:
+            pool = await self.init_pool()
+            self._redis = redis_async.Redis(
+                connection_pool=pool,
+                health_check_interval=30,
+                retry_on_timeout=True
+            )
+        return self._redis
+
+    async def get_redis(self) -> redis_async.Redis:
+        """Get Redis client with automatic retry"""
+        if self._redis is None:
+            self._redis = await self.init_redis()
+
+        try:
+            # Test connection
+            await self._redis.ping()
+            return self._redis
+        except (redis_async.ConnectionError, redis_async.TimeoutError) as e:
+            logger.warning("redis_connection_failed", error=str(e))
+            # Close and retry
+            await self.close()
+            self._redis = await self.init_redis()
+            return self._redis
+
+    async def close(self):
+        """Close Redis connection and pool"""
+        if self._redis:
+            await self._redis.close()
+            self._redis = None
+        if self._pool:
+            await self._pool.disconnect()
+            self._pool = None
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Redis health status"""
+        try:
+            redis = await self.get_redis()
+            start_time = datetime.utcnow()
+            await redis.ping()
+            response_time = (datetime.utcnow() - start_time).total_seconds()
+
+            info = await redis.info()
+            return {
+                "status": "healthy",
+                "response_time": response_time,
+                "connected_clients": info.get("connected_clients"),
+                "used_memory": info.get("used_memory_human"),
+                "version": info.get("redis_version"),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+class AsyncRedisLock:
+    """Distributed lock implementation"""
     def __init__(
         self,
         key: str,
-        expire: int = settings.SEQUENCE.SEQUENCE_LOCK_TIMEOUT,
-        retry_times: int = settings.REDIS_CONNECTION_RETRIES,
-        retry_delay: float = settings.REDIS_RETRY_DELAY
+        expire: int = 30,
+        retry_delay: float = 0.1,
+        max_retries: int = 3,
+        redis_helper: Optional[AsyncRedisHelper] = None
     ):
         self.key = f"lock:{key}"
         self.expire = expire
-        self.retry_times = retry_times
         self.retry_delay = retry_delay
+        self.max_retries = max_retries
+        self.redis_helper = redis_helper or AsyncRedisHelper()
         self.acquired = False
+        self._owner = f"{datetime.utcnow().isoformat()}-{id(self)}"
 
     async def __aenter__(self):
         await self.acquire()
@@ -51,24 +125,23 @@ class RedisLock:
         await self.release()
 
     async def acquire(self) -> bool:
-        """Acquire lock with retry mechanism"""
-        for attempt in range(self.retry_times):
+        """Acquire lock with retry"""
+        for attempt in range(self.max_retries):
             try:
-                self.acquired = bool(
-                    redis_client.set(
-                        self.key,
-                        str(time.time()),
-                        nx=True,
-                        ex=self.expire
-                    )
+                redis = await self.redis_helper.get_redis()
+                self.acquired = await redis.set(
+                    self.key,
+                    self._owner,
+                    ex=self.expire,
+                    nx=True
                 )
                 if self.acquired:
                     return True
-                if attempt < self.retry_times - 1:
+                if attempt < self.max_retries - 1:
                     await asyncio.sleep(self.retry_delay * (attempt + 1))
-            except RedisError as e:
-                logger.error(f"Error acquiring lock: {str(e)}")
-                if attempt == self.retry_times - 1:
+            except Exception as e:
+                logger.error("lock_acquisition_failed", key=self.key, error=str(e))
+                if attempt == self.max_retries - 1:
                     raise SequenceException(
                         error_code=SequenceErrorCode.LOCK_ACQUISITION_FAILED,
                         message="Failed to acquire lock",
@@ -77,206 +150,189 @@ class RedisLock:
         return False
 
     async def release(self) -> bool:
-        """Release the lock"""
+        """Release lock if owned by us"""
         if self.acquired:
             try:
-                result = bool(redis_client.delete(self.key))
-                self.acquired = not result
-                return result
-            except RedisError as e:
-                logger.error(f"Error releasing lock: {str(e)}")
-                return False
+                redis = await self.redis_helper.get_redis()
+                # Only delete if we still own the lock
+                current_owner = await redis.get(self.key)
+                if current_owner == self._owner:
+                    self.acquired = not await redis.delete(self.key)
+                    return not self.acquired
+            except Exception as e:
+                logger.error("lock_release_failed", key=self.key, error=str(e))
         return True
 
-class RedisTransaction:
-    """Transaction manager for Redis operations"""
-    def __init__(self, keys: List[str], retry_times: int = 3):
-        self.keys = keys
-        self.retry_times = retry_times
-        self.pipeline = None
-
-    async def __aenter__(self):
-        self.pipeline = redis_client.pipeline()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.pipeline:
-            self.pipeline.reset()
-
-    async def execute(self, operation) -> Any:
-        """Execute operation with optimistic locking"""
-        for attempt in range(self.retry_times):
-            try:
-                self.pipeline.watch(*self.keys)
-                result = await operation(self.pipeline)
-                self.pipeline.execute()
-                return result
-            except WatchError:
-                if attempt == self.retry_times - 1:
-                    raise SequenceException(
-                        error_code=SequenceErrorCode.CONCURRENT_MODIFICATION,
-                        message="Concurrent modification detected",
-                        status_code=409
-                    )
-                await asyncio.sleep(0.1 * (attempt + 1))
-            except RedisError as e:
-                raise handle_sequence_error(e, "redis_transaction")
-
-async def is_rate_limited(request: Request, phone_number: str) -> bool:
-    """
-    Check if a phone number has exceeded its message rate limit
-    
-    Args:
-        request: FastAPI request object
-        phone_number: The phone number to check
-        
-    Returns:
-        bool: True if rate limited, False otherwise
-    """
-    try:
-        is_limited, _ = await rate_limiter.is_rate_limited(
-            request=request,
-            rate_limit_type="message",
-            settings=settings
-        )
-        return is_limited
-    except Exception as e:
-        logger.error(f"Error checking rate limit: {str(e)}")
-        return False
-
-async def get_remaining_limit(request: Request, phone_number: str) -> Tuple[int, int]:
-    """
-    Get remaining messages allowed and time until reset
-    """
-    try:
-        remaining, reset_time = rate_limiter.get_remaining_limit(
-            request=request,
-            rate_limit_type="message",
-            settings=settings
-        )
-        return remaining, reset_time
-    except Exception as e:
-        logger.error(f"Error getting remaining limit: {str(e)}")
-        return settings.MESSAGE_RATE_LIMIT, settings.MESSAGE_RATE_WINDOW
-
-class CacheManager:
-    """Enhanced cache management with serialization and error handling"""
-    def __init__(self, prefix: str = "cache"):
+class AsyncCache:
+    """Enhanced caching implementation"""
+    def __init__(
+        self,
+        redis_helper: Optional[AsyncRedisHelper] = None,
+        prefix: str = "cache:"
+    ):
+        self.redis_helper = redis_helper or AsyncRedisHelper()
         self.prefix = prefix
 
     def _get_key(self, key: str) -> str:
-        return f"{self.prefix}:{key}"
+        """Generate prefixed key"""
+        return f"{self.prefix}{key}"
 
     async def set(
         self,
         key: str,
         value: Any,
-        expiry: int = settings.SEQUENCE.SEQUENCE_EXPIRY
+        expiry: int = 3600,
+        nx: bool = False
     ) -> bool:
-        """Set cache value with serialization"""
+        """Set cache value with options"""
         try:
+            redis = await self.redis_helper.get_redis()
             serialized = (
                 json.dumps(value)
                 if not isinstance(value, (str, int, float, bool))
                 else str(value)
             )
-            return bool(
-                redis_client.set(
-                    self._get_key(key),
-                    serialized,
-                    ex=expiry
-                )
+            return await redis.set(
+                self._get_key(key),
+                serialized,
+                ex=expiry,
+                nx=nx
             )
         except Exception as e:
-            logger.error(f"Cache set error: {str(e)}")
+            logger.error("cache_set_failed", key=key, error=str(e))
             return False
 
     async def get(self, key: str, default: Any = None) -> Any:
-        """Get cache value with deserialization"""
+        """Get cache value"""
         try:
-            value = redis_client.get(self._get_key(key))
+            redis = await self.redis_helper.get_redis()
+            value = await redis.get(self._get_key(key))
             if value is None:
                 return default
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
-                return value.decode()
+                return value
         except Exception as e:
-            logger.error(f"Cache get error: {str(e)}")
+            logger.error("cache_get_failed", key=key, error=str(e))
             return default
 
     async def delete(self, key: str) -> bool:
         """Delete cache value"""
         try:
-            return bool(redis_client.delete(self._get_key(key)))
+            redis = await self.redis_helper.get_redis()
+            return bool(await redis.delete(self._get_key(key)))
         except Exception as e:
-            logger.error(f"Cache delete error: {str(e)}")
+            logger.error("cache_delete_failed", key=key, error=str(e))
             return False
 
-class QueueManager:
-    """Queue management with error handling and monitoring"""
-    def __init__(self, queue_name: str):
-        self.queue_name = f"queue:{queue_name}"
-        self.processing_key = f"processing:{queue_name}"
-
-    async def enqueue(self, item: Any) -> bool:
-        """Add item to queue"""
+    async def increment(self, key: str, amount: int = 1) -> Optional[int]:
+        """Increment counter"""
         try:
-            serialized = json.dumps({
-                "data": item,
-                "timestamp": datetime.utcnow().isoformat(),
-                "attempts": 0
-            })
-            return bool(redis_client.rpush(self.queue_name, serialized))
+            redis = await self.redis_helper.get_redis()
+            return await redis.incrby(self._get_key(key), amount)
         except Exception as e:
-            logger.error(f"Queue enqueue error: {str(e)}")
+            logger.error("cache_increment_failed", key=key, error=str(e))
+            return None
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        """Set key expiration"""
+        try:
+            redis = await self.redis_helper.get_redis()
+            return await redis.expire(self._get_key(key), seconds)
+        except Exception as e:
+            logger.error("cache_expire_failed", key=key, error=str(e))
             return False
 
-    async def dequeue(self) -> Optional[Dict[str, Any]]:
-        """Get and remove item from queue"""
+class RateLimiter:
+    """Rate limiting implementation"""
+    def __init__(
+        self,
+        redis_helper: Optional[AsyncRedisHelper] = None,
+        prefix: str = "ratelimit:"
+    ):
+        self.redis_helper = redis_helper or AsyncRedisHelper()
+        self.prefix = prefix
+
+    def _get_key(self, identifier: str, rate_limit_type: str) -> str:
+        """Generate rate limit key"""
+        return f"{self.prefix}{rate_limit_type}:{identifier}"
+
+    async def is_rate_limited(
+        self,
+        request: Request,
+        rate_limit_type: str,
+        settings: Any
+    ) -> Tuple[bool, Optional[int]]:
+        """Check if request is rate limited"""
         try:
-            data = redis_client.lpop(self.queue_name)
-            if data:
-                item = json.loads(data)
-                # Track processing
-                redis_client.hset(
-                    self.processing_key,
-                    item['timestamp'],
-                    data
+            config = settings.rate_limit_config.get(rate_limit_type)
+            if not config:
+                logger.warning(f"No rate limit configuration for {rate_limit_type}")
+                return False, None
+
+            redis = await self.redis_helper.get_redis()
+            key = self._get_key(request.client.host, rate_limit_type)
+            current_time = datetime.utcnow().timestamp()
+
+            # Clean up old entries and count current ones
+            pipe = redis.pipeline()
+            pipe.zremrangebyscore(
+                key,
+                0,
+                current_time - config['period']
+            )
+            pipe.zcard(key)
+            pipe.zadd(key, {str(current_time): current_time})
+            pipe.expire(key, config['period'])
+            
+            _, count, _, _ = await pipe.execute()
+
+            is_limited = count > config['limit']
+            retry_after = config['period'] if is_limited else None
+
+            if is_limited:
+                logger.warning(
+                    "rate_limit_exceeded",
+                    type=rate_limit_type,
+                    client=request.client.host,
+                    count=count,
+                    limit=config['limit']
                 )
-                return item['data']
-            return None
+
+            return is_limited, retry_after
+
         except Exception as e:
-            logger.error(f"Queue dequeue error: {str(e)}")
-            return None
+            logger.error(
+                "rate_limit_check_failed",
+                type=rate_limit_type,
+                error=str(e)
+            )
+            return False, None
 
 async def cleanup_expired_keys(pattern: str) -> int:
-    """
-    Clean up expired keys matching pattern
-    Returns number of keys cleaned
-    """
+    """Clean up expired keys matching pattern"""
     try:
+        redis = await redis_helper.get_redis()
         cleaned = 0
-        for key in redis_client.scan_iter(f"{pattern}:*"):
-            if redis_client.ttl(key) <= 0:
-                redis_client.delete(key)
+        async for key in redis.scan_iter(f"{pattern}*"):
+            if await redis.ttl(key) <= 0:
+                await redis.delete(key)
                 cleaned += 1
         return cleaned
     except Exception as e:
-        logger.error(f"Cleanup error: {str(e)}")
+        logger.error("cleanup_failed", pattern=pattern, error=str(e))
         return 0
 
-# Initialize managers
-cache = CacheManager()
+# Initialize helpers
+redis_helper = AsyncRedisHelper()
+cache = AsyncCache(redis_helper)
+rate_limiter = RateLimiter(redis_helper)
 
 __all__ = [
-    'redis_client',
-    'rate_limiter',
-    'RedisLock',
-    'RedisTransaction',
-    'is_rate_limited',
-    'get_remaining_limit',
+    'redis_helper',
     'cache',
-    'QueueManager',
+    'rate_limiter',
+    'AsyncRedisLock',
     'cleanup_expired_keys'
 ]
