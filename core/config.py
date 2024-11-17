@@ -240,6 +240,14 @@ class Settings(BaseSettings):
                 "key_pattern": "rate_limit:step:{identifier}",
                 "identifier_type": "identifier"
             },
+
+            "get_user_info": {
+            "limit": self.RATE_LIMIT_USER_INFO_LIMIT,  # e.g., 20
+            "period": self.RATE_LIMIT_USER_INFO_PERIOD,  # e.g., 300 (5 minutes)
+            "key_pattern": "rate_limit:user_info:{identifier}",
+            "identifier_type": "identifier"  # This will use the email or phone as identifier
+            },
+
             # Load Balancer Rate Limits
             "signup": {
                 "limit": self.RATE_LIMIT_SIGNUP_LIMIT,
@@ -247,6 +255,7 @@ class Settings(BaseSettings):
                 "key_pattern": "rate_limit:signup:{ip}",
                 "identifier_type": "ip"
             },
+
             "load_stats": {
                 "limit": self.RATE_LIMIT_LOAD_STATS_LIMIT,
                 "period": self.RATE_LIMIT_LOAD_STATS_PERIOD,

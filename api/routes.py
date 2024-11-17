@@ -962,8 +962,11 @@ async def get_user_info_endpoint(
                 )
 
         # Rate limit check with identifier-specific limits
-        rate_limit_key = f"user_info:{user_request.identifier_type}:{user_request.identifier}"
-        is_limited, reset_time = await get_rate_limit_info(request, rate_limit_key)
+        is_limited, reset_time = await rate_limiter.is_rate_limited(
+            request=request,
+            rate_limit_type="get_user_info",
+            settings=settings
+        )
         if is_limited:
             return JSONResponse(
                 content=SequenceResponse.blocked(
