@@ -4,7 +4,7 @@ from keycloak.urls_patterns import URL_TOKEN
 from core.config import settings
 from utils.redis_pool import get_redis_client
 from services.rate_limiter import RateLimiter
-from utils.redis_helpers import RedisLock, cache
+from utils.redis_helpers import AsyncRedisLock, cache
 from functools import lru_cache
 import json
 import logging
@@ -44,7 +44,7 @@ class KeycloakTokenManager:
             return self.token
 
         # Use distributed lock to prevent concurrent token refreshes
-        async with RedisLock(self.token_lock_key, expire=30):
+        async with AsyncRedisLock(self.token_lock_key, expire=30):
             # Check cache first
             cached_token = await cache.get(self.token_cache_key)
             if cached_token:
@@ -325,7 +325,7 @@ class ECitizenAuthService:
             attempts_key = f"{self.cache_prefix}otp:attempts:{email}"
 
             # Store OTP with attempts tracking
-            async with RedisLock(f"otp_store:{email}"):
+            async with AsyncRedisLock(f"otp_store:{email}"):
                 await cache.set(otp_key, otp, expiry=expiry)
                 await cache.set(attempts_key, "0", expiry=expiry)
 
@@ -368,7 +368,7 @@ class ECitizenAuthService:
             if not stored_otp:
                 return {"valid": False, "message": "OTP expired or not found"}
 
-            async with RedisLock(f"otp_verify:{email}"):
+            async with AsyncRedisLock(f"otp_verify:{email}"):
                 attempts = int(await cache.get(attempts_key) or 0)
                 if attempts >= max_attempts:
                     return {
