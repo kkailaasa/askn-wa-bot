@@ -9,6 +9,7 @@ from pydantic import BaseModel, EmailStr
 from contextlib import asynccontextmanager
 import structlog
 import functools
+from sqlalchemy.ext.asyncio import AsyncSession 
 
 # Core imports
 from core.config import settings
