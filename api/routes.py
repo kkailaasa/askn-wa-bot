@@ -978,7 +978,7 @@ async def get_user_info_endpoint(
             )
 
         # Initialize auth service
-        auth_service = EcitzenAuthService()
+        auth_service = ECitzenAuthService()
 
         # Get user data based on identifier type
         try:
@@ -1269,7 +1269,7 @@ async def health_check():
         # Check Keycloak
         try:
             async with asyncio.timeout(2):
-                auth_service = EcitzenAuthService()
+                auth_service = ECitzenAuthService()
                 auth_start = time.time()
                 await auth_service.health_check()
                 auth_latency = time.time() - auth_start
