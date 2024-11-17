@@ -3,7 +3,7 @@
 from .rate_limiter import RateLimiter
 from .dify_chat import ChatService
 from .twilio_auth import MessagingService
-from .email_service import EmailService
+from .email_service import EmailService, email_service
 from .ecitizen_auth import (
     ECitizenAuthService,
     auth_service,
@@ -35,6 +35,7 @@ __all__ = [
     'ECitizenAuthService',
     'auth_service',
     'EmailService',
+    'email_service',
 
     # Sequence Management
     'sequence_manager',

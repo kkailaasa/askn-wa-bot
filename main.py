@@ -7,6 +7,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi import Security, HTTPException, status
 from contextlib import asynccontextmanager
 import uvicorn
+import redis.asyncio as redis_async
 from api.routes import router
 from api.load_balancer import router as load_balancer_router
 from core.config import Settings
@@ -20,7 +21,8 @@ from utils.http_client import http_pool
 from utils.redis_pool import redis_pool, get_redis_client
 from utils.redis_helpers import AsyncRedisLock, cleanup_expired_keys
 from utils.logging_utils import log_error
-from services import auth_service, email_service, ChatService
+from services import auth_service, email_service
+from services.email_service import EmailService
 import sys
 import atexit
 import time
@@ -35,7 +37,9 @@ import socket
 import platform
 import psutil
 from pathlib import Path
-import redis.asyncio as redis_async 
+
+# Initialize logging
+logger = structlog.get_logger(__name__)
 
 # Configure logging level based on environment
 logging_level = logging.DEBUG if Settings().DEBUG else logging.INFO

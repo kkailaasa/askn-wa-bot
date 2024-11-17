@@ -21,7 +21,18 @@ logger = structlog.get_logger(__name__)
 
 class EmailService:
     """Enhanced email service with improved error handling and features"""
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(EmailService, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self):
+        if self._initialized:
+            return
+            
         self.project_root = self._get_project_root()
         self.template_dir = os.path.join(self.project_root, "templates")
         self.cache = AsyncCache(prefix="email:")
@@ -36,6 +47,7 @@ class EmailService:
         # Ensure template directory exists
         os.makedirs(self.template_dir, exist_ok=True)
         logger.debug("email_service_initialized", template_dir=self.template_dir)
+        self._initialized = True
 
     def _get_project_root(self) -> str:
         """Get project root directory"""
@@ -48,7 +60,6 @@ class EmailService:
             if not os.path.exists(template_path):
                 logger.info("creating_email_template", path=template_path)
 
-                # Create default template
                 default_template = '''<!DOCTYPE html>
 <html>
 <head>
@@ -130,7 +141,6 @@ class EmailService:
 </body>
 </html>'''
 
-                # Create template file
                 os.makedirs(self.template_dir, exist_ok=True)
                 async with aiofiles.open(template_path, 'w') as f:
                     await f.write(default_template)
@@ -263,4 +273,4 @@ class EmailService:
 # Initialize email service
 email_service = EmailService()
 
-__all__ = ['email_service']
+__all__ = ['EmailService', 'email_service']
