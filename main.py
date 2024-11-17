@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, Response, BackgroundTasks
 from pydantic import ValidationError
-from db_scripts.base import SessionLocal
+from db_scripts.base import get_db, get_db_dependency, AsyncSessionLocal
 from fastapi.middleware.cors import CORSMiddleware
 from api.load_balancer import router as load_balancer_router, signup_endpoint
 from fastapi.responses import JSONResponse
