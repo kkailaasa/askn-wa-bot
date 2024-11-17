@@ -1,18 +1,87 @@
-from celery import Celery
+from celery import Celery, Task
+from kombu import Queue
 from core.config import settings
-import logging
-from services import ChatService, MessagingService, EcitzenAuthService
+import structlog
+from services import (
+    ChatService,
+    MessagingService,
+    auth_service,
+    sequence_manager,
+    AccountCreationStep,
+    email_service,
+)
 from utils.redis_pool import get_redis_client
 import time
+import asyncio
+from typing import Dict, Any, Optional, Union
+from datetime import datetime
+import json
+from fastapi import HTTPException
+from core.sequence_errors import SequenceException, SequenceErrorCode
+from celery.signals import (
+    task_prerun,
+    task_postrun,
+    task_retry,
+    task_failure,
+    task_success,
+    worker_ready,
+    worker_shutdown
+)
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+redis_client = get_redis_client()
 
-# Initialize the Celery app
-celery_app = Celery('tasks',
-                   broker=settings.CELERY_BROKER_URL,
-                   backend=settings.CELERY_RESULT_BACKEND)
+celery_app.conf.task_queues = (
+    Queue('high', routing_key='high'),
+    Queue('default', routing_key='default'),
+    Queue('low', routing_key='low'),
+    Queue('dead_letter', routing_key='dead_letter')  # Add this line
+)
+
+celery_app.conf.task_reject_on_worker_lost = True
+celery_app.conf.task_acks_late = True
+
+celery_app.conf.task_routes = {
+    'celery.task.exceptions.Reject': {'queue': 'dead_letter'},
+    'tasks.celery_tasks.*': {'queue': 'dead_letter', 'routing_key': 'dead_letter'}
+}
+
+class BaseTaskWithRetry(Task):
+    autoretry_for = (Exception,)
+    max_retries = 3
+    retry_backoff = True
+    retry_backoff_max = 600
+    retry_jitter = True
+
+    def on_retry(self, exc, task_id, args, kwargs, einfo):
+        """Log retry attempts"""
+        logger.warning(
+            "task_retry",
+            task_id=task_id,
+            task_name=self.name,
+            exc_info=str(exc),
+            attempt=self.request.retries + 1,
+            args=args,
+            kwargs=kwargs
+        )
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        """Log task failures"""
+        logger.error(
+            "task_failure",
+            task_id=task_id,
+            task_name=self.name,
+            exc_info=str(exc),
+            args=args,
+            kwargs=kwargs
+        )
+
+# Initialize Celery with better defaults
+celery_app = Celery(
+    'tasks',
+    broker=settings.CELERY_BROKER_URL,
+    backend=settings.CELERY_RESULT_BACKEND
+)
 
 celery_app.conf.update(
     broker_connection_retry_on_startup=True,
@@ -21,179 +90,435 @@ celery_app.conf.update(
     result_serializer='json',
     timezone='UTC',
     enable_utc=True,
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    task_time_limit=300,  # 5 minutes
+    task_soft_time_limit=240,  # 4 minutes
+    worker_prefetch_multiplier=1,  # Process one task at a time
+    task_default_queue='default',
+    task_queues={
+        'high': {'routing_key': 'high'},
+        'default': {'routing_key': 'default'},
+        'low': {'routing_key': 'low'}
+    },
+    task_routes={
+        'tasks.celery_tasks.process_message': {'queue': 'high'},
+        'tasks.celery_tasks.check_phone': {'queue': 'default'},
+        'tasks.celery_tasks.check_email': {'queue': 'default'},
+        'tasks.celery_tasks.create_account': {'queue': 'default'},
+        'tasks.celery_tasks.send_otp_email_task': {'queue': 'high'},
+        'tasks.celery_tasks.verify_email_task': {'queue': 'default'}
+    }
 )
 
+# Signal handlers
+@worker_ready.connect
+def worker_ready_handler(**kwargs):
+    logger.info("celery_worker_ready")
 
-@celery_app.task(bind=True, max_retries=3)
-def process_message(self, phone_number: str, message_body: str):
-    logger.info(f"Processing message from {phone_number}: {message_body}")
+@worker_shutdown.connect
+def worker_shutdown_handler(**kwargs):
+    logger.info("celery_worker_shutting_down")
+
+@task_prerun.connect
+def task_prerun_handler(task_id, task, args, kwargs, **_):
+    logger.info(
+        "task_started",
+        task_id=task_id,
+        task_name=task.name,
+        args=args,
+        kwargs=kwargs
+    )
+
+@task_postrun.connect
+def task_postrun_handler(task_id, task, args, kwargs, retval, state, **_):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    logger.info(
+        "task_completed",
+        task_id=task_id,
+        task_name=task.name,
+        state=state
+    )
+    loop.close()
+
+def run_async(coroutine):
+    """Helper to run async code in sync context"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(coroutine)
+        loop.close()
+        return result
+    except Exception as e:
+        if 'loop' in locals():
+            loop.close()
+        raise e
+
+@celery_app.task(
+    bind=True,
+    base=BaseTaskWithRetry,
+    queue='high',
+    rate_limit='100/s'
+)
+def process_message(self, phone_number: str, message_body: str) -> Dict[str, Any]:
+    """Process incoming messages with enhanced error handling"""
+    logger.info("processing_message", phone_number=phone_number)
+
     try:
         chat_service = ChatService()
         messaging_service = MessagingService()
 
-        # Check for "start new chat" command
+        # Handle "start new chat" command
         if message_body.lower().strip() == "start new chat":
-            # Send original message to Dify but with no conversation_id to force new chat
-            response = chat_service.create_chat_message(
-                phone_number, 
-                message_body,
-                conversation_id=None
+            response = run_async(
+                chat_service.create_chat_message(
+                    phone_number=phone_number,
+                    message=message_body,
+                    conversation_id=None
+                )
             )
         else:
-            # Regular flow - get existing conversation or create new one
-            conversation_id = chat_service.get_conversation_id(phone_number)
-            response = chat_service.create_chat_message(phone_number, message_body, conversation_id)
+            conversation_id = run_async(
+                chat_service.get_conversation_id(phone_number)
+            )
+            response = run_async(
+                chat_service.create_chat_message(
+                    phone_number=phone_number,
+                    message=message_body,
+                    conversation_id=conversation_id
+                )
+            )
 
-        # Send Dify's response back to user
-        messaging_service.send_message(phone_number, response)
-        logger.info(f"Successfully processed and responded to message from {phone_number}")
+        # Send response message
+        messaging_service.send_message(phone_number, response.get('message', ''))
+
+        logger.info(
+            "message_processed",
+            phone_number=phone_number,
+            conversation_id=response.get('conversation_id')
+        )
+
+        return {
+            'status': 'success',
+            'response': response,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+
     except Exception as e:
-        logger.error(f"Error processing message from {phone_number}: {str(e)}")
-        retry_in = (self.request.retries + 1) * 60
-        raise self.retry(exc=e, countdown=retry_in)
+        logger.error(
+            "message_processing_failed",
+            phone_number=phone_number,
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise self.retry(exc=e)
 
+@celery_app.task(bind=True, base=BaseTaskWithRetry)
+def check_phone(self, phone_number: str) -> Dict[str, Any]:
+    """Check phone number with enhanced validation"""
+    logger.info("checking_phone", phone_number=phone_number)
 
-@celery_app.task(bind=True, max_retries=3)
-def check_phone(self, phone_number: str):
-    logger.info(f"Checking phone number: {phone_number}")
     try:
-        auth_service = EcitzenAuthService()
-        user = auth_service.get_user_by_phone_or_username(phone_number)
+        # Validate and start sequence
+        run_async(
+            sequence_manager.validate_step(
+                phone_number,
+                AccountCreationStep.CHECK_PHONE
+            )
+        )
+
+        # Check if user exists
+        user = run_async(
+            auth_service.get_user_by_email_or_username(None, phone_number)
+        )
+
+        # Store step data
+        step_data = {
+            "phone_number": phone_number,
+            "verification_status": bool(user),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        run_async(
+            sequence_manager.store_step_data(
+                phone_number,
+                AccountCreationStep.CHECK_PHONE,
+                step_data
+            )
+        )
+
         if user:
-            user_response = auth_service.format_user_response(user)
             if not user.get('email'):
-                auth_service.store_temp_data(phone_number, {
-                    "phone_number": phone_number,
-                    "user_id": user.get('id')
-                })
+                run_async(
+                    sequence_manager.update_step(
+                        phone_number,
+                        AccountCreationStep.CHECK_EMAIL
+                    )
+                )
                 return {
                     "message": "User found but email not set",
-                    "user": user_response,
+                    "user": user,
                     "next_step": "check_email"
                 }
             return {
                 "message": "User found",
-                "user": user_response
+                "user": user
             }
-        else:
-            auth_service.store_temp_data(phone_number, {"phone_number": phone_number})
-            return {"message": "User not found", "next_step": "check_email"}
-    except Exception as e:
-        logger.error(f"Error checking phone number {phone_number}: {str(e)}")
-        # Retry task with exponential backoff
-        retry_in = (self.request.retries + 1) * 60  # 60s, 120s, 180s
-        raise self.retry(exc=e, countdown=retry_in)
 
-
-@celery_app.task(bind=True, max_retries=3)
-def check_email(self, phone_number: str, email: str):
-    logger.info(f"Checking email for phone number: {phone_number}")
-    try:
-        auth_service = EcitzenAuthService()
-        phone_user = auth_service.get_user_by_phone_or_username(phone_number)
-        email_user = auth_service.get_user_by_email_or_username(email)
-
-        if phone_user and email_user:
-            # Both users exist - we need to merge them
-            result = auth_service.merge_accounts(email_user, phone_user, email, phone_number)
-            return {
-                "message": "Accounts merged successfully",
-                "user": auth_service.format_user_response(result)
-            }
-        elif phone_user:
-            result = auth_service.add_email_to_user(phone_user, email)
-            return {
-                "message": "Email added to existing account",
-                "user": auth_service.format_user_response(result)
-            }
-        elif email_user:
-            result = auth_service.add_phone_to_user(email_user, phone_number)
-            return {
-                "message": "Phone attributes added to existing account",
-                "user": auth_service.format_user_response(email_user)
-            }
-        else:
-            return {"message": "User not found", "next_step": "create_account"}
+        run_async(
+            sequence_manager.update_step(
+                phone_number,
+                AccountCreationStep.CHECK_EMAIL
+            )
+        )
+        return {"message": "User not found", "next_step": "check_email"}
 
     except Exception as e:
-        logger.error(f"Error checking email for phone number {phone_number}: {str(e)}")
-        retry_in = (self.request.retries + 1) * 60  # 60s, 120s, 180s
-        raise self.retry(exc=e, countdown=retry_in)
+        logger.error(
+            "phone_check_failed",
+            phone_number=phone_number,
+            error=str(e)
+        )
+        raise self.retry(exc=e)
 
+@celery_app.task(bind=True, base=BaseTaskWithRetry)
+def check_email(self, phone_number: str, email: str) -> Dict[str, Any]:
+    """Validate email with enhanced error handling"""
+    logger.info(
+        "checking_email",
+        phone_number=phone_number,
+        email=email
+    )
 
-@celery_app.task(bind=True, max_retries=3)
-def create_account(self, phone_number: str, email: str, first_name: str, last_name: str, gender: str, country: str):
-    logger.info(f"Creating account for phone number: {phone_number}")
     try:
-        auth_service = EcitzenAuthService()
-        temp_data = auth_service.get_temp_data(phone_number)
-        if not temp_data:
-            raise Exception("Invalid request sequence")
+        run_async(
+            sequence_manager.validate_step(
+                phone_number,
+                AccountCreationStep.CHECK_EMAIL
+            )
+        )
 
-        result = auth_service.create_user_with_phone(
+        # Check existing users
+        phone_user = run_async(
+            auth_service.get_user_by_email_or_username(None, phone_number)
+        )
+        email_user = run_async(
+            auth_service.get_user_by_email_or_username(None, email)
+        )
+
+        # Store verification data
+        step_data = {
+            "email": email,
+            "phone_number": phone_number,
+            "verification_status": bool(email_user),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        run_async(
+            sequence_manager.store_step_data(
+                phone_number,
+                AccountCreationStep.CHECK_EMAIL,
+                step_data
+            )
+        )
+
+        # Update sequence state
+        run_async(
+            sequence_manager.update_step(
+                phone_number,
+                AccountCreationStep.CREATE_ACCOUNT
+            )
+        )
+
+        return {
+            "message": "Email check completed",
+            "next_step": "create_account",
+            "existing_phone_user": bool(phone_user),
+            "existing_email_user": bool(email_user)
+        }
+
+    except Exception as e:
+        logger.error(
+            "email_check_failed",
             phone_number=phone_number,
             email=email,
-            first_name=first_name,
-            last_name=last_name,
-            gender=gender,
-            country=country,
-            phone_type=temp_data.get("phoneType", "whatsapp"),
-            phone_verified=temp_data.get("phoneVerified", "yes"),
-            verification_route=temp_data.get("verificationRoute", "ngpt_wa")
+            error=str(e)
         )
-        auth_service.delete_temp_data(phone_number)
-        return {
-            "message": "User account created with UPDATE_PASSWORD action",
-            "user_id": result["user_id"],
-            "next_step": "verify_email"
+        raise self.retry(exc=e)
+
+@celery_app.task(bind=True, base=BaseTaskWithRetry)
+def create_account(
+    self,
+    phone_number: str,
+    email: str,
+    first_name: str,
+    last_name: str,
+    gender: str,
+    country: str
+) -> Dict[str, Any]:
+    """Create user account with enhanced validation"""
+    logger.info(
+        "creating_account",
+        phone_number=phone_number,
+        email=email
+    )
+
+    try:
+        # Validate sequence step
+        run_async(
+            sequence_manager.validate_step(
+                phone_number,
+                AccountCreationStep.CREATE_ACCOUNT
+            )
+        )
+
+        # Create account data
+        account_data = {
+            "phone_number": phone_number,
+            "email": email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "gender": gender,
+            "country": country,
+            "timestamp": datetime.utcnow().isoformat()
         }
+
+        run_async(
+            sequence_manager.store_step_data(
+                phone_number,
+                AccountCreationStep.CREATE_ACCOUNT,
+                account_data
+            )
+        )
+
+        # Create user account
+        result = run_async(
+            auth_service.create_user_with_phone(
+                request=None,
+                phone_number=phone_number,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                gender=gender,
+                country=country,
+                phone_type="whatsapp",
+                phone_verified="yes",
+                verification_route="ngpt_wa"
+            )
+        )
+
+        run_async(
+            sequence_manager.update_step(
+                phone_number,
+                AccountCreationStep.SEND_EMAIL_OTP
+            )
+        )
+
+        return {
+            "message": "Account created successfully",
+            "user_id": result["user_id"],
+            "next_step": "send_email_otp"
+        }
+
     except Exception as e:
-        logger.error(f"Error creating account for phone number {phone_number}: {str(e)}")
-        # Retry task with exponential backoff
-        retry_in = (self.request.retries + 1) * 60  # 60s, 120s, 180s
-        raise self.retry(exc=e, countdown=retry_in)
+        logger.error(
+            "account_creation_failed",
+            phone_number=phone_number,
+            email=email,
+            error=str(e)
+        )
+        raise self.retry(exc=e)
 
+@celery_app.task(bind=True, base=BaseTaskWithRetry, queue='high')
+def send_otp_email_task(self, email: str) -> Dict[str, Any]:
+    """Send OTP email with enhanced error handling"""
+    logger.info("sending_otp_email", email=email)
 
-@celery_app.task(bind=True, max_retries=3)
-def send_otp_email_task(self, email: str):
-    logger.info(f"Sending OTP email to: {email}")
     try:
-        otp = generate_otp()
-        store_otp(email, otp)
-        if send_otp_email(email, otp):
-            return {"message": "OTP sent successfully"}
-        else:
-            logger.error(f"Failed to send OTP email to {email}")
-            raise Exception("Failed to send OTP email")
+        # Generate and store OTP
+        otp = run_async(auth_service.generate_otp())
+        run_async(auth_service.store_otp(None, email, otp))
+
+        # Send email
+        result = run_async(email_service.send_otp_email(email, otp))
+
+        if not result.get('success'):
+            raise SequenceException(
+                error_code=SequenceErrorCode.EMAIL_ERROR,
+                message="Failed to send OTP email"
+            )
+
+        return {"message": "OTP sent successfully"}
+
     except Exception as e:
-        logger.error(f"Error sending OTP email to {email}: {str(e)}")
-        # Retry task with exponential backoff
-        retry_in = (self.request.retries + 1) * 60  # 60s, 120s, 180s
-        raise self.retry(exc=e, countdown=retry_in)
+        logger.error(
+            "otp_email_failed",
+            email=email,
+            error=str(e)
+        )
+        raise self.retry(exc=e)
 
+@celery_app.task(bind=True, base=BaseTaskWithRetry)
+def verify_email_task(self, email: str, otp: str) -> Dict[str, Any]:
+    """Verify email with enhanced validation"""
+    logger.info("verifying_email", email=email)
 
-@celery_app.task(bind=True, max_retries=3)
-def verify_email_task(self, email: str, otp: str):
-    logger.info(f"Verifying email: {email}")
     try:
-        verification_result = verify_otp(email, otp)
-        if not verification_result["valid"]:
-            raise Exception(verification_result["message"])
+        # Verify OTP
+        verification = run_async(
+            auth_service.verify_otp(None, email, otp)
+        )
 
-        # If OTP is valid, mark the email as verified in Keycloak
-        result = verify_email(email)
-        return {"message": "Email verified successfully."}
+        if verification["valid"]:
+            # Mark email as verified
+            result = run_async(auth_service.verify_email(None, email))
+
+            # Store verification status
+            verification_data = {
+                "email": email,
+                "verified": True,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+            run_async(
+                sequence_manager.store_step_data(
+                    email,
+                    AccountCreationStep.VERIFY_EMAIL,
+                    verification_data
+                )
+            )
+
+            return {"message": "Email verified successfully"}
+
+        raise SequenceException(
+            error_code=SequenceErrorCode.INVALID_OTP,
+            message=verification["message"]
+        )
+
     except Exception as e:
-        logger.error(f"Error verifying email {email}: {str(e)}")
-        # Retry task with exponential backoff
-        retry_in = (self.request.retries + 1) * 60  # 60s, 120s, 180s
-        raise self.retry(exc=e, countdown=retry_in)
+        logger.error(
+            "email_verification_failed",
+            email=email,
+            error=str(e)
+        )
+        raise self.retry(exc=e)
 
+@celery_app.task
+def cleanup_expired_sequences() -> None:
+    """Cleanup expired sequences periodically"""
+    try:
+        run_async(sequence_manager.cleanup_expired_sequences())
+    except Exception as e:
+        logger.error(
+            "sequence_cleanup_failed",
+            error=str(e)
+        )
 
-# Configure periodic tasks
+# Schedule periodic tasks
 celery_app.conf.beat_schedule = {
-    'cleanup-redis-data': {
-        'task': 'tasks.celery_tasks.cleanup_redis_data',
+    'cleanup-expired-sequences': {
+        'task': 'tasks.celery_tasks.cleanup_expired_sequences',
         'schedule': 3600.0,  # Run every hour
     },
 }
