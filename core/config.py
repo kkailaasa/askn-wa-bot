@@ -141,10 +141,14 @@ class Settings(BaseSettings):
     DB_CONNECTION_RETRIES: int = 3
     DB_RETRY_DELAY: float = 0.1
 
+    #emails per hour per recipient
+    EMAIL_RATE_LIMIT: int = 3
+
     # Sendgrid Configuration
     SENDGRID_API_KEY: str
     EMAIL_FROM_NAME: str
     EMAIL_FROM: str
+    TEMPLATE_DIR: str = "templates"
 
     # Load Balancer Settings
     MAX_MESSAGES_PER_SECOND: int = 70

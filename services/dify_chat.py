@@ -11,7 +11,7 @@ import re
 from utils.logging_utils import log_error
 from datetime import datetime
 import json
-from utils.redis_helpers import RedisLock, cache
+from utils.redis_helpers import AsyncRedisLock, cache
 from fastapi import HTTPException
 
 logger = structlog.get_logger(__name__)
@@ -194,7 +194,7 @@ class ChatService:
             formatted_user = await self.format_phone_number(user)
 
             # Use distributed lock to prevent concurrent requests
-            async with RedisLock(f"dify_conv:{formatted_user}"):
+            async with AsyncRedisLock(f"dify_conv:{formatted_user}"):
                 response = await self._make_request(
                     'GET',
                     f'/conversations?user={formatted_user}'
@@ -219,12 +219,6 @@ class ChatService:
                 user=user,
                 error=str(e),
                 error_type=type(e).__name__
-            )
-            await log_error(
-                error_type="DifyError",
-                error_message=str(e),
-                phone_number=user,
-                metadata={"operation": "get_conversation_id"}
             )
             return None
 

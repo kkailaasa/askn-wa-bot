@@ -4,7 +4,7 @@ from utils.redis_pool import get_redis_client
 redis_sync_client = get_redis_client()  # For any code that still needs sync client
 
 from .redis_helpers import (
-    redis_helper,  # Instead of redis_client
+    redis_helper,
     rate_limiter,
     AsyncRedisLock,
     cleanup_expired_keys,

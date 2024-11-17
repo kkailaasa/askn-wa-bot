@@ -13,6 +13,7 @@ from redis.client import Pipeline
 from redis.exceptions import WatchError
 import functools
 from core.config import settings
+from utils.redis_helpers import AsyncRedisLock, redis_helper, cache
 
 logger = logging.getLogger(__name__)
 
@@ -175,36 +176,29 @@ class SequenceManager:
     @with_retry(max_retries=3)
     async def validate_step(self, identifier: str, current_step: AccountCreationStep) -> None:
         """Validate step with atomic operation"""
-        if not await self._acquire_lock(identifier):
-            raise HTTPException(status_code=423, detail="Resource locked")
-
-        try:
+        async with AsyncRedisLock(f"sequence:{identifier}"):
             sequence_key = self._get_sequence_key(identifier)
-            
-            async def transaction(pipe: Pipeline):
-                last_step = pipe.get(sequence_key)
-                if not last_step:
-                    if current_step != AccountCreationStep.CHECK_PHONE:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Invalid sequence. Please start with phone number verification."
-                        )
-                    await self.start_sequence(identifier)
-                    return
+            redis = await self.redis_helper.get_redis()
 
-                last_step = AccountCreationStep(last_step.decode())
-                required_previous_step = STEP_SEQUENCE.get(current_step)
-
-                if required_previous_step and last_step != required_previous_step:
+            last_step = await redis.get(sequence_key)
+            if not last_step:
+                if current_step != AccountCreationStep.CHECK_PHONE:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Invalid sequence. {current_step} must follow {required_previous_step}"
+                        detail="Invalid sequence. Please start with phone number verification."
                     )
+                await self.start_sequence(identifier)
+                return
 
-            await self.transaction_manager.execute_transaction([sequence_key], transaction)
+            last_step = AccountCreationStep(last_step)
+            required_previous_step = STEP_SEQUENCE.get(current_step)
 
-        finally:
-            await self._release_lock(identifier)
+            if required_previous_step and last_step != required_previous_step:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid sequence. {current_step} must follow {required_previous_step}"
+                )
+
 
     @with_retry(max_retries=3)
     async def update_step(self, identifier: str, step: AccountCreationStep) -> None:
@@ -214,7 +208,7 @@ class SequenceManager:
 
         try:
             sequence_key = self._get_sequence_key(identifier)
-            
+
             async def transaction(pipe: Pipeline):
                 pipe.multi()
                 pipe.set(sequence_key, step, ex=self.sequence_expiry)
@@ -234,7 +228,7 @@ class SequenceManager:
         try:
             data_key = self._get_data_key(identifier)
             validated_data = await self.validate_step_data(step, data)
-            
+
             async def transaction(pipe: Pipeline):
                 existing_data = pipe.get(data_key)
                 current_data = json.loads(existing_data) if existing_data else {}
