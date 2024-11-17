@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request, Response, BackgroundTasks
+from fastapi import FastAPI, Request, Response, BackgroundTasks, ValidationError
+from db_scripts.base import SessionLocal
 from fastapi.middleware.cors import CORSMiddleware
 from api.load_balancer import router as load_balancer_router, signup_endpoint
 from fastapi.responses import JSONResponse
@@ -21,14 +22,14 @@ from utils.http_client import http_pool
 from utils.redis_pool import redis_pool, get_redis_client
 from utils.redis_helpers import AsyncRedisLock, cleanup_expired_keys
 from utils.logging_utils import log_error
-from services import auth_service, email_service
+from services import auth_service, email_service, chat_service
 from services.email_service import EmailService
 import sys
 import atexit
 import time
 from datetime import datetime
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 import structlog
 import logging.config
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -36,6 +37,7 @@ import asyncio
 import socket
 import platform
 import psutil
+import ipaddress
 from pathlib import Path
 
 # Initialize logging
@@ -84,6 +86,18 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         start_time = time.time()
         request_id = request.headers.get("X-Request-ID", str(time.time()))
+        cf_ray = request.headers.get("cf-ray", "")
+
+        # Get all relevant client info
+        client_info = {
+            "ip": request.client.host,
+            "cf_ip": request.headers.get("cf-connecting-ip"),
+            "cf_country": request.headers.get("cf-ipcountry"),
+            "cf_ray": cf_ray,
+            "forwarded_for": request.headers.get("x-forwarded-for"),
+            "user_agent": request.headers.get("user-agent"),
+            "real_scheme": request.headers.get("x-forwarded-proto", request.url.scheme)
+        }
 
         # Enhanced request logging
         logger.info(
@@ -91,8 +105,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             request_id=request_id,
             method=request.method,
             url=str(request.url),
-            client_ip=request.client.host,
-            user_agent=request.headers.get("user-agent"),
+            client=client_info,
             path_params=dict(request.path_params),
             query_params=dict(request.query_params)
         )
@@ -108,7 +121,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 status_code=response.status_code,
                 process_time=process_time,
                 content_type=response.headers.get("content-type"),
-                content_length=response.headers.get("content-length")
+                content_length=response.headers.get("content-length"),
+                cf_ray=cf_ray
             )
 
             # Add response headers
@@ -122,6 +136,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 request_id=request_id,
                 error=str(e),
                 error_type=type(e).__name__,
+                client=client_info,
+                cf_ray=cf_ray,
                 traceback=True
             )
             raise
@@ -156,14 +172,24 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 
 # Create async Redis client
 async def init_redis() -> redis_async.Redis:
-    return redis_async.Redis(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        db=0,
-        decode_responses=True,
-        socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
-        socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT
-    )
+    for retry in range(3):  # Add retries
+        try:
+            redis = redis_async.Redis(
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                db=0,
+                decode_responses=True,
+                socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
+                socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT,
+                retry_on_timeout=True
+            )
+            await redis.ping()  # Test connection
+            return redis
+        except Exception as e:
+            if retry == 2:  # Last retry
+                logger.error("Redis initialization failed", error=str(e))
+                raise
+            await asyncio.sleep(1)  # Wait before retry
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -233,6 +259,45 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error("shutdown_error", error=str(e))
 
+
+class ClientIPMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope["headers"])
+
+            # Try to get real IP in order of preference
+            real_ip = None
+
+            # First check Cloudflare headers
+            cf_connecting_ip = headers.get(b"cf-connecting-ip", b"").decode()
+            if cf_connecting_ip:
+                real_ip = cf_connecting_ip
+
+            # Then check X-Forwarded-For
+            elif b"x-forwarded-for" in headers:
+                # Get the first IP in X-Forwarded-For chain
+                forwarded_for = headers[b"x-forwarded-for"].decode().split(",")[0].strip()
+                try:
+                    # Validate IP address
+                    ipaddress.ip_address(forwarded_for)
+                    real_ip = forwarded_for
+                except ValueError:
+                    pass
+
+            # Finally check X-Real-IP
+            elif b"x-real-ip" in headers:
+                real_ip = headers[b"x-real-ip"].decode()
+
+            if real_ip:
+                # Update client host and port in scope
+                scope["client"] = (real_ip, scope["client"][1])
+
+        return await self.app(scope, receive, send)
+
+
 # Initialize FastAPI application
 app = FastAPI(
     title=settings.APP_NAME,
@@ -243,6 +308,12 @@ app = FastAPI(
 )
 
 # Middleware configuration
+app.add_middleware(ClientIPMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["*"] if settings.DEBUG else settings.CORS_ALLOWED_ORIGINS
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ALLOWED_ORIGINS,
@@ -252,12 +323,8 @@ app.add_middleware(
     expose_headers=["X-Request-ID", "X-Process-Time"]
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(MetricsMiddleware)
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["*"] if settings.DEBUG else settings.CORS_ALLOWED_ORIGINS
-)
+
 
 @app.get("/signup")
 async def signup_route(request: Request, background_tasks: BackgroundTasks):
@@ -424,17 +491,34 @@ async def health_check():
 
 async def load_balancer_health():
     try:
-        numbers = settings.TWILIO_NUMBERS.split(',')
-        loads = {num.strip(): load_balancer.get_number_load(num.strip()) for num in numbers}
+        if not settings.TWILIO_NUMBERS:
+            return {
+                "status": "unhealthy",
+                "error": "No Twilio numbers configured"
+            }
+
+        numbers = [num.strip() for num in settings.TWILIO_NUMBERS.split(',') if num.strip()]
+        loads = {}
+        for num in numbers:
+            try:
+                loads[num] = await load_balancer.get_number_load(num)
+            except Exception as e:
+                logger.error(f"Failed to get load for number {num}: {e}")
+                loads[num] = None
+
         return {
-            "status": "healthy",
+            "status": "healthy" if all(load is not None for load in loads.values()) else "degraded",
             "current_loads": loads,
             "max_messages": settings.MAX_MESSAGES_PER_SECOND,
             "high_threshold": load_balancer.high_threshold
         }
     except Exception as e:
-        logger.error(f"Load balancer health check failed: {e}")
-        return {"status": "unhealthy", "error": str(e)}
+        logger.error("Load balancer health check failed", error=str(e))
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
 
 async def check_redis_health() -> Dict[str, Any]:
     """Check Redis connection health"""
