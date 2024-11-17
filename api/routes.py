@@ -24,7 +24,7 @@ from core.sequence_errors import (
 from services import (
     ChatService,
     MessagingService,
-    ECitzenAuthService,
+    ECitizenAuthService,
     sequence_manager,
     AccountCreationStep,
     rate_limiter

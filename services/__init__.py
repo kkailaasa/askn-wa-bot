@@ -1,3 +1,5 @@
+# services/__init__.py
+
 from .rate_limiter import RateLimiter
 from .dify_chat import ChatService
 from .twilio_auth import MessagingService
@@ -30,9 +32,11 @@ __all__ = [
     # Services
     'ChatService',
     'MessagingService',
-    'ECitizenAuthService',  # Make sure this exactly matches
+    'ECitizenAuthService',
     'auth_service',
     'EmailService',
+
+    # Sequence Management
     'sequence_manager',
     'AccountCreationStep',
     'SequenceManager',

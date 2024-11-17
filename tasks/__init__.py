@@ -1,5 +1,3 @@
-# tasks/__init__.py
-
 from .celery_tasks import (
     celery_app,
     process_message,
@@ -7,7 +5,8 @@ from .celery_tasks import (
     check_email,
     create_account,
     send_otp_email_task,
-    verify_email_task
+    verify_email_task,
+    cleanup_expired_sequences
 )
 
 __all__ = [
@@ -17,5 +16,6 @@ __all__ = [
     'check_email',
     'create_account',
     'send_otp_email_task',
-    'verify_email_task'
+    'verify_email_task',
+    'cleanup_expired_sequences'
 ]

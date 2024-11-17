@@ -68,6 +68,7 @@ celery_app = Celery(
 
 # Configure Celery using settings
 celery_app.conf.update(
+    broker_connection_retry_on_startup=True,
     task_serializer=settings.CELERY_TASK_SERIALIZER,
     result_serializer=settings.CELERY_RESULT_SERIALIZER,
     accept_content=settings.CELERY_ACCEPT_CONTENT,
