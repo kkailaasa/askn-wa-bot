@@ -20,6 +20,9 @@ from core.sequence_errors import (
     handle_sequence_error
 )
 
+# Database imports
+from db_scripts.base import get_db, get_db_dependency
+
 # Service imports
 from services import (
     ChatService,

@@ -39,7 +39,7 @@ AsyncSessionLocal = sessionmaker(
 Base = declarative_base()
 
 @asynccontextmanager
-async def get_db():
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Async context manager for database sessions"""
     session = AsyncSessionLocal()
     try:
@@ -50,16 +50,16 @@ async def get_db():
     finally:
         await session.close()
 
-# Dependency for FastAPI endpoints
-async def get_db_dependency():
+async def get_db_dependency() -> AsyncGenerator[AsyncSession, None]:
+    """Dependency for FastAPI endpoints"""
     async with get_db() as session:
         yield session
 
-# For backwards compatibility
-def get_sync_db():
-    """Sync database session for legacy code"""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+__all__ = [
+    'Base',
+    'get_db',
+    'get_db_dependency',
+    'AsyncSessionLocal',
+    'SessionLocal',
+    'engine'
+]
