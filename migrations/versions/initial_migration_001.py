@@ -1,13 +1,14 @@
-"""Initial migration
-Revision ID: 1a2b3c4d5e6f
-Revises:
-Create Date: 2024-11-14 10:00:00.000000
+"""Combined migration with load balancer enhancements
+Revision ID: combined_migration_001
+Revises: None
+Create Date: 2024-11-18 10:00:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = '1a2b3c4d5e6f'
-down_revision = None
+# revision identifiers
+revision = 'combined_migration_001'
+down_revision = None  # Previous migration ID
 branch_labels = None
 depends_on = None
 
@@ -39,7 +40,7 @@ def upgrade() -> None:
         sa.Column('metadata', sa.JSON(), nullable=True),
         sa.PrimaryKeyConstraint('id')
     )
-
+    
     # Load balancer tables
     op.create_table(
         'load_balancer_logs',
@@ -50,10 +51,13 @@ def upgrade() -> None:
         sa.Column('assigned_number', sa.String(length=50), nullable=True),
         sa.Column('request_timestamp', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
         sa.Column('additional_data', sa.JSON(), nullable=True),
+        sa.Column('cf_country', sa.String(length=2), nullable=True, comment='Country code from CF-IPCountry header'),
         sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_load_balancer_logs_assigned_number', 'load_balancer_logs', ['assigned_number'])
     op.create_index('idx_load_balancer_logs_timestamp', 'load_balancer_logs', ['request_timestamp'])
+    op.create_index('idx_lb_logs_country', 'load_balancer_logs', ['cf_country'])
+    op.create_index('idx_lb_logs_country_timestamp', 'load_balancer_logs', ['cf_country', 'request_timestamp'])
 
     op.create_table(
         'number_load_stats',
@@ -67,6 +71,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table('number_load_stats')
+    op.drop_index('idx_number_load_stats_phone_timestamp', table_name='number_load_stats')
     op.drop_table('load_balancer_logs')
+    op.drop_index('idx_lb_logs_country_timestamp', table_name='load_balancer_logs')
+    op.drop_index('idx_lb_logs_country', table_name='load_balancer_logs')
+    op.drop_index('idx_load_balancer_logs_timestamp', table_name='load_balancer_logs')
+    op.drop_index('idx_load_balancer_logs_assigned_number', table_name='load_balancer_logs')
     op.drop_table('error_logs')
     op.drop_table('conversation_logs')
