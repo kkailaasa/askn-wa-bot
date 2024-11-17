@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 import redis.asyncio as redis_async
 from api.routes import router
-from api.load_balancer import router as load_balancer_router
+from api.load_balancer import router as load_balancer_router, signup_endpoint
 from core.config import Settings
 from core.sequence_errors import (
     SequenceException,
