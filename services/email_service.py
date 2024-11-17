@@ -116,7 +116,7 @@ class EmailRateLimiter:
         self.window = 3600  # 1 hour
         self.limit = 3  # emails per hour per recipient
 
-    async def check_rate_limit(self, email: str) -> Tuple[bool, int]:
+    async def check_rate_limit(self, email: str) -> tuple[bool, int]:
         """Check if rate limited"""
         key = f"{self.cache_prefix}{email}"
 
