@@ -24,9 +24,10 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 # Copy the rest of the application
 COPY . .
 
-# Create a non-root user and set ownership
+# Create a non-root user and set specific directory permissions
 RUN adduser --disabled-password --gecos '' appuser \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app/logs /app/temp /app/templates \
+    && chown appuser:appuser /app
 
 # Set environment variables
 ENV PYTHONPATH=/app
