@@ -1,9 +1,8 @@
 # core/sequence_errors.py
 
 from enum import Enum
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional
 from fastapi import HTTPException
-import json
 from datetime import datetime
 from pydantic import BaseModel
 import logging
@@ -174,93 +173,50 @@ class SequenceResponse(BaseModel):
             error_code=error_code
         )
 
-    @classmethod
-    def user_friendly_message(cls, error_code: SequenceErrorCode) -> str:
+class SequenceException(HTTPException):
+    """Custom exception for sequence operations"""
+    def __init__(
+        self,
+        error_code: SequenceErrorCode,
+        message: str,
+        status_code: int = 400,
+        details: Optional[Dict[str, Any]] = None,
+        operation: Optional[str] = None
+    ):
+        self.error_code = error_code
+        self.details = details
+        self.operation = operation
+        super().__init__(status_code=status_code, detail=message)
+
+    @staticmethod
+    def user_friendly_message(error_code: SequenceErrorCode) -> str:
         """Returns user-friendly messages for error codes"""
         messages = {
-            # Validation Errors
             SequenceErrorCode.INVALID_PHONE: "The phone number provided is not valid. Please check and try again.",
             SequenceErrorCode.INVALID_EMAIL: "The email address provided is not valid. Please check and try again.",
             SequenceErrorCode.VALIDATION_ERROR: "Please check the information provided and try again.",
-            
-            # Sequence Errors
             SequenceErrorCode.SEQUENCE_VIOLATION: "There was an issue with the order of operations. Let's start over.",
             SequenceErrorCode.SEQUENCE_EXPIRED: "Your session has expired. Please start the process again.",
             SequenceErrorCode.SEQUENCE_BLOCKED: "The service is temporarily unavailable. Please try again in a few minutes.",
             SequenceErrorCode.SEQUENCE_LOCKED: "Another operation is in progress. Please wait a moment and try again.",
-            
-            # Transaction Errors
             SequenceErrorCode.TRANSACTION_FAILED: "The operation couldn't be completed. Please try again.",
             SequenceErrorCode.LOCK_ACQUISITION_FAILED: "The system is busy. Please try again in a moment.",
             SequenceErrorCode.CONCURRENT_MODIFICATION: "Someone else modified the data. Please refresh and try again.",
-            
-            # Service Errors
             SequenceErrorCode.KEYCLOAK_ERROR: "We're having trouble verifying your information. Please try again later.",
             SequenceErrorCode.REDIS_ERROR: "The service is temporarily unavailable. Please try again shortly.",
             SequenceErrorCode.RATE_LIMIT: "You've made too many requests. Please wait a moment before trying again.",
             SequenceErrorCode.EMAIL_ERROR: "We're having trouble sending the email. Please try again later.",
-            
-            # Data Errors
             SequenceErrorCode.DATA_NOT_FOUND: "We couldn't find your information. Please start the process again.",
             SequenceErrorCode.DATA_CORRUPTION: "There was an issue with your data. Please try again.",
-            
-            # State Errors
             SequenceErrorCode.ACCOUNT_EXISTS: "An account with this information already exists.",
             SequenceErrorCode.EMAIL_EXISTS: "This email is already registered.",
             SequenceErrorCode.PHONE_EXISTS: "This phone number is already registered.",
-            
-            # System Errors
             SequenceErrorCode.SYSTEM_ERROR: "We're experiencing technical difficulties. Please try again later.",
             SequenceErrorCode.TIMEOUT: "The operation timed out. Please try again.",
             SequenceErrorCode.NETWORK_ERROR: "There seems to be a network issue. Please check your connection and try again."
         }
         return messages.get(error_code, "An unexpected error occurred. Please try again later.")
 
-class SequenceException(HTTPException):
-    """Enhanced exception class with detailed error information"""
-    def __init__(
-        self,
-        error_code: SequenceErrorCode,
-        message: str,
-        status_code: int = 400,
-        retry_after: Optional[int] = None,
-        details: Optional[Dict[str, Any]] = None,
-        operation: Optional[str] = None
-    ):
-        self.error_code = error_code
-        self.retry_after = retry_after
-        self.operation = operation
-        
-        # Create error context
-        error_context = ErrorContext(
-            timestamp=datetime.utcnow().isoformat(),
-            error_code=error_code,
-            message=message,
-            details=details,
-            operation=operation
-        )
-        
-        # Log the error
-        logger.error(
-            f"Sequence error occurred: {error_code}",
-            extra={
-                "error_context": error_context.dict(),
-                "status_code": status_code
-            }
-        )
-        
-        super().__init__(
-            status_code=status_code,
-            detail=SequenceResponse.failure(
-                message=message,
-                error_code=error_code,
-                details=details,
-                retry_after=retry_after,
-                operation=operation
-            ).dict()
-        )
-
-# Helper function for error handling
 def handle_sequence_error(
     error: Exception,
     operation: str,
@@ -279,9 +235,8 @@ def handle_sequence_error(
         "KeycloakError": (SequenceErrorCode.KEYCLOAK_ERROR, 502),
     }
     
-    error_type = type(error).__name__
     error_code, status_code = error_mapping.get(
-        error_type, 
+        type(error).__name__, 
         (SequenceErrorCode.SYSTEM_ERROR, 500)
     )
     
