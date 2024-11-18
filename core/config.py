@@ -1,12 +1,11 @@
 # core/config.py
-
 from pydantic_settings import BaseSettings
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 import logging
 from enum import Enum
 from datetime import timedelta
-from pydantic import field_validator, validator
+from pydantic import field_validator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,6 +33,7 @@ class TimeoutSettings(BaseSettings):
     SEQUENCE_VALIDATION_TIMEOUT: int = 5
     LOCK_ACQUISITION_TIMEOUT: int = 5
     DEFAULT_OPERATION_TIMEOUT: int = 10
+    AUTH_TIMEOUT: int = 30
 
 class RateLimitSettings(BaseSettings):
     """Enhanced rate limit configurations"""
@@ -179,16 +179,22 @@ class Settings(BaseSettings):
     ERROR_LOGGING_LEVEL: str = "ERROR"
     DETAILED_ERROR_RESPONSES: bool = True  # Set to True only in development
 
-    @validator('TWILIO_NUMBERS', pre=True)
+    @field_validator('TWILIO_NUMBERS', mode='before')
     def parse_twilio_numbers(cls, value):
         if isinstance(value, str):
             return value
         return ""
 
-    @validator('LOAD_BALANCER_HIGH_THRESHOLD', 'LOAD_BALANCER_ALERT_THRESHOLD')
+    @field_validator('LOAD_BALANCER_HIGH_THRESHOLD', 'LOAD_BALANCER_ALERT_THRESHOLD')
     def validate_thresholds(cls, v):
         if not 0 < v < 1:
             raise ValueError("Threshold must be between 0 and 1")
+        return v
+
+    @field_validator('AUTH_TIMEOUT')
+    def validate_auth_timeout(cls, v):
+        if v < 0:
+            raise ValueError('Timeout cannot be negative')
         return v
 
     @property
@@ -267,14 +273,17 @@ class Settings(BaseSettings):
 class TimeoutSettings(BaseSettings):
     """Timeout configurations"""
     CHAT_TIMEOUT: int = 15
-    # Add this to the Settings class
-    AUTH_TIMEOUT: int = field_validator(default=30, description="Timeout in seconds for authentication requests")
-
+    AUTH_TIMEOUT: int = 30  # Changed from field_validator to direct assignment
     SEQUENCE_TIMEOUT: int = 5
     EMAIL_TIMEOUT: int = 10
     CACHE_TIMEOUT: int = 3
     HEALTH_CHECK_TIMEOUT: int = 2
     OPERATION_TIMEOUT: int = 10
+
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+        extra = "allow"
 
     # Add timeout settings
     TIMEOUTS: TimeoutSettings = TimeoutSettings()
