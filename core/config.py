@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 import logging
 from enum import Enum
 from datetime import timedelta
-from pydantic import validator
+from pydantic import field_validator, validator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -267,7 +267,9 @@ class Settings(BaseSettings):
 class TimeoutSettings(BaseSettings):
     """Timeout configurations"""
     CHAT_TIMEOUT: int = 15
-    AUTH_TIMEOUT: int = 10
+    # Add this to the Settings class
+    AUTH_TIMEOUT: int = field_validator(default=30, description="Timeout in seconds for authentication requests")
+
     SEQUENCE_TIMEOUT: int = 5
     EMAIL_TIMEOUT: int = 10
     CACHE_TIMEOUT: int = 3
