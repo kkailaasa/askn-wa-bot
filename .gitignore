@@ -78,3 +78,6 @@ htmlcov/
 # Redis data
 redis_data/*
 !redis_data/.gitkeep
+
+#repomix
+repomix-output.txt
