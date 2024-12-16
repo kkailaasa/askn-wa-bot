@@ -3,7 +3,7 @@
 import time
 import aiohttp
 import structlog
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from app.core.config import settings
 from app.utils.redis_helpers import message_counter, cache
 from datetime import datetime
@@ -13,7 +13,7 @@ logger = structlog.get_logger()
 class LoadBalancer:
     def __init__(self):
         """Initialize load balancer with configured Twilio numbers"""
-        self.numbers = settings.TWILIO_NUMBERS
+        self.numbers = settings.get_twilio_numbers()
         if not self.numbers:
             raise ValueError("No Twilio numbers configured")
 
@@ -176,9 +176,9 @@ class LoadBalancer:
         """Check health of load balancer"""
         stats = await self.get_all_stats()
         total_load = sum(
-            stat.get("current_load_percentage", 0) 
+            stat.get("current_load_percentage", 0)
             for stat in stats.values()
-        ) / len(self.numbers)
+        ) / len(self.numbers) if self.numbers else 0
 
         return {
             "healthy": total_load < self.alert_threshold * 100,
