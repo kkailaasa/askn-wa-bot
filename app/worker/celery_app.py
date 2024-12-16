@@ -2,6 +2,7 @@
 
 from celery import Celery
 from app.core.config import settings
+import os
 
 # Initialize Celery with Redis broker
 celery_app = Celery(
@@ -17,7 +18,7 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
-    broker_connection_retry_on_startup=True,  # Add this line
+    broker_connection_retry_on_startup=True,
 
     # Task settings
     task_acks_late=True,
@@ -31,7 +32,8 @@ celery_app.conf.update(
     },
 
     # Beat settings
-    beat_schedule_filename='/app/celerybeat-schedule',  # Add this line
+    beat_schedule_filename='/app/celery/celerybeat-schedule',
+    beat_schedule={},  # Add your scheduled tasks here
 
     # Retry settings
     task_retry_delay_start=1,

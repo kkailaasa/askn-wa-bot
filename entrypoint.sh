@@ -7,31 +7,28 @@ mkdir -p /app/logs
 mkdir -p /app/temp
 mkdir -p /app/migrations
 
-# Set proper permissions for directories
-chown -R appuser:appuser /app/data
-chown -R appuser:appuser /app/logs
-chown -R appuser:appuser /app/temp
-chown -R appuser:appuser /app/migrations
-chmod -R 775 /app/data
-chmod -R 775 /app/logs
-chmod -R 775 /app/temp
-chmod -R 775 /app/migrations
+# Create celery schedule directory
+mkdir -p /app/celery
+touch /app/celery/celerybeat-schedule
 
-# Create and set permissions for Celery Beat schedule file
-touch /app/celerybeat-schedule
-chown appuser:appuser /app/celerybeat-schedule
-chmod 664 /app/celerybeat-schedule
+# Set proper permissions for directories and files
+chown -R appuser:appuser /app/data /app/logs /app/temp /app/migrations /app/celery
+chmod -R 775 /app/data /app/logs /app/temp /app/migrations /app/celery
 
 # Initialize and run migrations only from web service
 if [ "$SERVICE_NAME" = "web" ]; then
     echo "Checking migrations..."
 
-    # Create SQLite database directory with proper permissions
+    # Set proper DB_PATH if not provided
+    DB_PATH=${DB_PATH:-"/app/data/app.db"}
+
+    # Create database directory
     DB_DIR=$(dirname "$DB_PATH")
     mkdir -p "$DB_DIR"
+
+    # Create database file and set permissions
     touch "$DB_PATH"
-    chown -R appuser:appuser "$DB_DIR"
-    chmod 775 "$DB_DIR"
+    chown appuser:appuser "$DB_PATH"
     chmod 664 "$DB_PATH"
 
     # Initialize alembic if not already initialized

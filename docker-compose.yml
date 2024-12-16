@@ -8,12 +8,12 @@ services:
     environment:
       - SERVICE_NAME=web
       - PYTHONPATH=/app
+      - DB_PATH=/app/data/app.db
     env_file:
       - .env
     volumes:
       - app_data:/app/data
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - celery_data:/app/celery
     networks:
       - default
 
@@ -26,10 +26,12 @@ services:
       - SERVICE_NAME=celery_worker
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
+      - DB_PATH=/app/data/app.db
     env_file:
       - .env
     volumes:
       - app_data:/app/data
+      - celery_data:/app/celery
     networks:
       - default
 
@@ -39,13 +41,15 @@ services:
     depends_on:
       - redis
     environment:
-      - SERVICE_NAME=celery_beat
+      - SERVICE_NAME=celery_beat  
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
+      - DB_PATH=/app/data/app.db
     env_file:
       - .env
     volumes:
       - app_data:/app/data
+      - celery_data:/app/celery
     networks:
       - default
 
@@ -64,3 +68,4 @@ networks:
 volumes:
   redis_data:
   app_data:
+  celery_data:
