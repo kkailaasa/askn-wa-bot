@@ -37,6 +37,16 @@ class DifyService:
             )
             raise
 
+    async def health_check(self) -> bool:
+        """Check if Dify service is healthy by trying to list conversations"""
+        try:
+            # Try to get conversations as a basic health check
+            await self.chat_client.get_conversations(user="healthcheck")
+            return True
+        except Exception as e:
+            logger.error("dify_health_check_failed", error=str(e))
+            return False
+
     def _sanitize_message(self, message: str) -> str:
         """Sanitize message content with enhanced validation"""
         if not message:
