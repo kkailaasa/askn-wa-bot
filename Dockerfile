@@ -3,7 +3,7 @@ FROM python:3.11-slim
 # Install gosu, postgres client and other dependencies
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y gosu postgresql-client ; \
+    apt-get install -y gosu ; \
     rm -rf /var/lib/apt/lists/*; \
     gosu nobody true
 
