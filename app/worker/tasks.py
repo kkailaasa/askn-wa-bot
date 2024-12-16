@@ -7,9 +7,12 @@ from app.services.load_balancer import LoadBalancer
 from app.db.database import SessionLocal
 from app.db.models import MessageLog, ErrorLog
 import structlog
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
 
 logger = structlog.get_logger()
+
+# Initialize services
 dify_service = DifyService()
 twilio_client = TwilioClient()
 load_balancer = LoadBalancer()
@@ -29,9 +32,11 @@ def process_message(
     from_number: str,
     to_number: str,
     body: str,
-    conversation_id: str = None,
-    media_data: dict = None
-):
+    media_data: Optional[Dict[str, Any]] = None,
+    cloudflare_data: Optional[Dict[str, Any]] = None,
+    request_log_id: Optional[int] = None,
+    conversation_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Process incoming WhatsApp message through Dify and send response via Twilio"""
     db = SessionLocal()
     start_time = datetime.utcnow()
@@ -48,15 +53,20 @@ def process_message(
             conversation_id=conversation_id
         )
 
-        # Get available Twilio number for response
+        # Get available number for response
         response_number = load_balancer.get_available_number()
+        if not response_number:
+            raise Exception("No available WhatsApp numbers")
 
         # Send response via Twilio
         twilio_response = twilio_client.send_message(
-            from_=response_number,
             to=from_number,
-            body=dify_response["message"]
+            body=dify_response["message"],
+            from_number=response_number
         )
+
+        if not twilio_response:
+            raise Exception("Failed to send Twilio message")
 
         # Log successful message
         message_log = MessageLog(
@@ -83,7 +93,7 @@ def process_message(
         error_log = ErrorLog(
             error_type=type(e).__name__,
             error_message=str(e),
-            metadata={
+            error_metadata={
                 "message_sid": message_sid,
                 "from_number": from_number,
                 "conversation_id": conversation_id,
