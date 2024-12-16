@@ -32,6 +32,8 @@ RUN adduser --disabled-password --gecos '' appuser \
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
+# Add this line to ensure Celery is in PATH
+ENV PATH="/usr/local/bin:$PATH"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 

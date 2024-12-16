@@ -19,7 +19,7 @@ services:
 
   celery_worker:
     build: .
-    command: celery -A tasks.celery_tasks worker -Q high,default,low --loglevel=info
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "high,default,low", "--loglevel=info"]
     depends_on:
       - redis
       - db
@@ -36,7 +36,7 @@ services:
 
   celery_beat:
     build: .
-    command: celery -A tasks.celery_tasks beat --loglevel=info
+    command: ["celery", "-A", "app.worker.celery_app", "beat", "--loglevel=info"]
     depends_on:
       - redis
       - db

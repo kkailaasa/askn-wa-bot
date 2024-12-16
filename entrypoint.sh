@@ -1,19 +1,14 @@
 #!/bin/bash
 set -e
 
-# Wait for database to be ready
-until PGPASSWORD=$POSTGRES_PASSWORD psql -h "db" -U "postgres" -c '\q'; do
-    >&2 echo "Postgres is unavailable - sleeping"
-    sleep 1
-done
-
->&2 echo "Postgres is up - executing command"
-
 # Create required directories if they don't exist
-mkdir -p logs temp templates
+mkdir -p /app/data  # For SQLite database
+mkdir -p /app/logs
+mkdir -p /app/temp
+mkdir -p /app/templates
 
 # Set proper permissions
-chown -R appuser:appuser /app/logs /app/temp /app/templates
+chown -R appuser:appuser /app/data /app/logs /app/temp /app/templates
 
 # Only run migrations from the web service
 if [ "$SERVICE_NAME" = "web" ]; then
