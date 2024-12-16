@@ -11,15 +11,24 @@ from collections import defaultdict
 logger = structlog.get_logger()
 
 class RateLimiter:
+    """Rate limiter implementation with configurable limits and windows"""
     def __init__(self):
         self.requests = defaultdict(list)
 
     def is_rate_limited(self, key: str, limit: int, period: int) -> bool:
+        """
+        Check if the request should be rate limited
+
+        Args:
+            key: Unique identifier for the rate limit (e.g. IP address)
+            limit: Maximum number of requests allowed in the period
+            period: Time window in seconds
+        """
         now = time.time()
 
-        # Remove old requests
+        # Remove old requests outside the window
         self.requests[key] = [req_time for req_time in self.requests[key]
-                            if now - req_time < period]
+                          if now - req_time < period]
 
         # Check if limit is exceeded
         if len(self.requests[key]) >= limit:
@@ -29,13 +38,20 @@ class RateLimiter:
         self.requests[key].append(now)
         return False
 
-rate_limiter = RateLimiter()
-
 def rate_limit(limit: int, period: int) -> Callable:
+    """
+    Create a rate limit dependency with specified limit and period
+
+    Args:
+        limit: Maximum number of requests allowed in the period
+        period: Time window in seconds
+    """
+    limiter = RateLimiter()
+
     async def rate_limit_dependency(request: Request):
         client_ip = request.headers.get("CF-Connecting-IP", request.client.host)
 
-        if rate_limiter.is_rate_limited(client_ip, limit, period):
+        if limiter.is_rate_limited(client_ip, limit, period):
             logger.warning(
                 "rate_limit_exceeded",
                 ip=client_ip,
@@ -47,6 +63,7 @@ def rate_limit(limit: int, period: int) -> Callable:
             )
 
         return True
+
     return rate_limit_dependency
 
 async def verify_api_key(request: Request) -> bool:
@@ -68,12 +85,7 @@ async def verify_api_key(request: Request) -> bool:
 async def validate_twilio_signature(request: Request):
     """
     Validates that the request is coming from Twilio
-
-    Twilio sends these headers:
-    - X-Twilio-Signature: Used to validate request
-    - X-Twilio-IdempotencyToken: Unique token for the request (optional)
     """
-
     # Get Twilio signature from header
     twilio_signature = request.headers.get("X-Twilio-Signature")
     if not twilio_signature:
@@ -82,15 +94,11 @@ async def validate_twilio_signature(request: Request):
         raise HTTPException(status_code=403, detail="Missing Twilio signature")
 
     # Get full URL for validation
-    # Twilio uses the full URL including scheme, host, path and query string
     url = str(request.base_url)[:-1] + request.url.path
 
     try:
         # Get request body as form data
-        # Important: We need to await the form() here to get the data
         form_data = await request.form()
-
-        # Convert form data to dict for validation
         post_vars = dict(form_data)
 
         # Create validator with our auth token

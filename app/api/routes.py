@@ -75,9 +75,9 @@ public_rate_limiter = RateLimiter(
 async def redirect_to_wa(
     request: Request,
     phone: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     _=Depends(verify_api_key),
-    __=Depends(public_rate_limiter)
+    __=Depends(rate_limit(100, 60))  # 100 requests per minute
 ):
     """Redirect to least loaded WhatsApp number"""
     start_time = datetime.utcnow()
@@ -207,10 +207,7 @@ async def health_check(
 async def get_load_stats(
     request: Request,
     _=Depends(verify_api_key),
-    __=Depends(rate_limit(
-        settings.RATE_LIMIT_LOAD_STATS_LIMIT,
-        settings.RATE_LIMIT_LOAD_STATS_PERIOD
-    ))
+    __=Depends(rate_limit(settings.RATE_LIMIT_LOAD_STATS_LIMIT, settings.RATE_LIMIT_LOAD_STATS_PERIOD))
 ):
     """Get detailed load statistics for all WhatsApp numbers"""
     try:
@@ -318,9 +315,9 @@ async def handle_message(
     NumMedia: Optional[int] = Form(0),
     MediaContentType0: Optional[str] = Form(None),
     MediaUrl0: Optional[str] = Form(None),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     _=Depends(validate_twilio_signature),
-    __=Depends(public_rate_limiter)
+    __=Depends(rate_limit(100, 60))  # 100 requests per minute
 ):
     """
     Handle incoming WhatsApp messages from Twilio.
