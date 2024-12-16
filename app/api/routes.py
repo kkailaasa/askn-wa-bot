@@ -295,7 +295,7 @@ async def get_message_history(
         error_log = ErrorLog(
             error_type=type(e).__name__,
             error_message=str(e),
-            metadata={
+            error_metadata={  # Changed from metadata to error_metadata
                 "cloudflare_data": cf_data if 'cf_data' in locals() else None,
                 "phone": phone
             }
