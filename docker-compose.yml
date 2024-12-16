@@ -12,8 +12,7 @@ services:
     env_file:
       - .env
     volumes:
-      - app_data:/app/data
-      - celery_data:/app/celery
+      - sqlite_data:/app/data
     networks:
       - default
 
@@ -30,8 +29,7 @@ services:
     env_file:
       - .env
     volumes:
-      - app_data:/app/data
-      - celery_data:/app/celery
+      - sqlite_data:/app/data
     networks:
       - default
 
@@ -41,15 +39,14 @@ services:
     depends_on:
       - redis
     environment:
-      - SERVICE_NAME=celery_beat  
+      - SERVICE_NAME=celery_beat
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
       - DB_PATH=/app/data/app.db
     env_file:
       - .env
     volumes:
-      - app_data:/app/data
-      - celery_data:/app/celery
+      - sqlite_data:/app/data
     networks:
       - default
 
@@ -67,5 +64,4 @@ networks:
 
 volumes:
   redis_data:
-  app_data:
-  celery_data:
+  sqlite_data:
