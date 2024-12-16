@@ -10,8 +10,7 @@ pydantic-settings==2.1.0
 typing-extensions==4.8.0
 alembic==1.13.1
 celery==5.3.6
-redis==5.0.1
+redis[hiredis]==5.0.1
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
 phonenumbers==8.13.25
-aioredis==2.0.1
