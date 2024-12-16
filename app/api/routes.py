@@ -282,6 +282,7 @@ async def get_message_history(
                 for msg in messages
             ]
         }
+
     except HTTPException:
         raise
     except Exception as e:
@@ -290,26 +291,22 @@ async def get_message_history(
             phone=phone,
             error=str(e)
         )
-        raise HTTPException(status_code=500, detail="Failed to fetch message history")message=str(e),
+        # Create error log
+        error_log = ErrorLog(
+            error_type=type(e).__name__,
+            error_message=str(e),
             metadata={
                 "cloudflare_data": cf_data if 'cf_data' in locals() else None,
                 "phone": phone
             }
         )
         db.add(error_log)
-
-        if 'request_log' in locals():
-            request_log.response_status = 500
-            request_log.processing_time = (datetime.utcnow() - start_time).total_seconds()
-
         db.commit()
 
-        logger.error(
-            "redirect_error",
-            error=str(e),
-            error_type=type(e).__name__
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to fetch message history"
         )
-        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/webhook")
 async def handle_message(

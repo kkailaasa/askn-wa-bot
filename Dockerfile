@@ -15,17 +15,16 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Create required directories with proper permissions
-RUN mkdir -p /app/data /app/logs /app/temp /app/templates /app/migrations \
+RUN mkdir -p /app/data /app/logs /app/temp /app/templates /app/migrations /app/celery \
     && chown -R root:root /app \
     && chmod -R 755 /app \
-    && chmod -R 775 /app/data /app/logs /app/temp /app/templates /app/migrations \
-    # Create Celery Beat schedule file
-    && touch /app/celerybeat-schedule \
-    && chmod 664 /app/celerybeat-schedule
+    && chmod -R 775 /app/data /app/logs /app/temp /app/templates /app/migrations /app/celery
 
-# Copy entrypoint script first and make it executable 
+# Copy entrypoint script and celery init script first and make them executable
 COPY entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY celery-init.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+    && chmod +x /usr/local/bin/celery-init.sh
 
 # Copy the rest of the application
 COPY . .
@@ -34,14 +33,17 @@ COPY . .
 RUN adduser --disabled-password --gecos '' appuser \
     && chown -R appuser:appuser /app/logs /app/temp /app/templates /app/migrations \
     && chown -R appuser:appuser /app/data \
-    && chown appuser:appuser /app/celerybeat-schedule
+    && chown -R appuser:appuser /app/celery
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
 
+# Initialize celery beat schedule during build
+RUN /usr/local/bin/celery-init.sh
+
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# Default command (will be overridden by docker-compose for celery services)
+# Default command
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
