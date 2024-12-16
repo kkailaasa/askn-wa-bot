@@ -30,7 +30,7 @@ class ErrorLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     error_type = Column(String)
     error_message = Column(Text)
-    metadata = Column(JSON, nullable=True)
+    error_metadata = Column(JSON, nullable=True)  # Changed from metadata to error_metadata
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
     def __repr__(self):
