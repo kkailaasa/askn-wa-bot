@@ -2,16 +2,11 @@
 
 from fastapi import APIRouter, Depends, Request, Form, HTTPException, Response
 from fastapi.responses import RedirectResponse
-from fastapi.encoders import jsonable_encoder
-from sqlalchemy.orm import Session
 import structlog
 from datetime import datetime
 from typing import Dict, Any, Optional
 import phonenumbers
-import time
-import asyncio
 import json
-from twilio.request_validator import RequestValidator
 from urllib.parse import urljoin
 
 from app.core.config import settings
@@ -20,7 +15,7 @@ from app.db.models import MessageLog, ErrorLog, RequestLog
 from app.services.twilio import TwilioClient
 from app.services.dify import DifyService
 from app.services.load_balancer import LoadBalancer
-from app.api.dependencies import rate_limit, verify_api_key, validate_twilio_signature, RateLimiter
+from app.api.dependencies import rate_limit, verify_api_key, validate_twilio_signature
 from app.utils.redis_helpers import cache
 from app.worker.tasks import process_message
 
@@ -30,7 +25,6 @@ router = APIRouter()
 twilio_client = TwilioClient()
 dify_service = DifyService()
 load_balancer = LoadBalancer()
-request_validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
 
 def validate_phone_number(phone_number: str) -> bool:
     """Validate phone number format"""
@@ -49,27 +43,6 @@ def extract_cloudflare_data(request: Request) -> Dict[str, str]:
         "cf_ssl": request.headers.get("CF-Visitor"),
         "user_agent": request.headers.get("User-Agent")
     }
-
-async def verify_twilio_signature(request: Request) -> bool:
-    """Verify Twilio request signature"""
-    signature = request.headers.get("X-Twilio-Signature")
-    if not signature:
-        return False
-
-    # Get raw request body
-    body = await request.body()
-
-    # Validate signature
-    return request_validator.validate(
-        str(request.url),
-        body.decode(),
-        signature
-    )
-
-public_rate_limiter = RateLimiter(
-    limit=100,  # 100 requests
-    period=60   # per minute
-)
 
 @router.get("/message")
 async def redirect_to_wa(
@@ -246,7 +219,7 @@ async def get_load_stats(
 async def get_message_history(
     phone: str,
     limit: int = 100,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     _=Depends(verify_api_key),
     __=Depends(rate_limit(50, 3600))  # 50 requests per hour
 ):

@@ -18,7 +18,7 @@ class RateLimiter:
     def is_rate_limited(self, key: str, limit: int, period: int) -> bool:
         """
         Check if the request should be rate limited
-
+        
         Args:
             key: Unique identifier for the rate limit (e.g. IP address)
             limit: Maximum number of requests allowed in the period
@@ -41,13 +41,13 @@ class RateLimiter:
 def rate_limit(limit: int, period: int) -> Callable:
     """
     Create a rate limit dependency with specified limit and period
-
+    
     Args:
         limit: Maximum number of requests allowed in the period
         period: Time window in seconds
     """
     limiter = RateLimiter()
-
+    
     async def rate_limit_dependency(request: Request):
         client_ip = request.headers.get("CF-Connecting-IP", request.client.host)
 
