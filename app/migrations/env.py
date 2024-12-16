@@ -1,25 +1,36 @@
+# app/migrations/env.py
+
+import os
+import sys
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from alembic import context
-import os
-import sys
-from app.db.models import Base  # Import all your models
 
 # Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-# This is the Alembic Config object
+from app.db.models import Base
+from app.core.config import settings
+
+# this is the Alembic Config object
 config = context.config
 
-# Interpret the config file for Python logging
+# Interpret the config file for Python logging.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = Base.metadata  # Set your SQLAlchemy metadata
+target_metadata = Base.metadata
 
-def run_migrations_offline():
-    url = config.get_main_option("sqlalchemy.url")
+def get_url():
+    DB_PATH = settings.DB_PATH
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    return f"sqlite:///{DB_PATH}"
+
+def run_migrations_offline() -> None:
+    """Run migrations in 'offline' mode."""
+    url = get_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -30,16 +41,20 @@ def run_migrations_offline():
     with context.begin_transaction():
         context.run_migrations()
 
-def run_migrations_online():
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode."""
+    configuration = config.get_section(config.config_ini_section)
+    configuration["sqlalchemy.url"] = get_url()
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata
         )
 
         with context.begin_transaction():

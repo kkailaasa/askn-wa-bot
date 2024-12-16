@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Create required directories with proper structure
+# Create required directories
 mkdir -p /app/data/sqlite
 mkdir -p /app/logs
 mkdir -p /app/temp
@@ -11,30 +11,23 @@ mkdir -p /app/celery
 # Create celery schedule directory and file
 touch /app/celery/celerybeat-schedule
 
-# Set proper permissions for directories and files
+# Set proper permissions
 chown -R appuser:appuser /app/data /app/logs /app/temp /app/migrations /app/celery
 chmod -R 775 /app/data /app/logs /app/temp /app/migrations /app/celery
 
 # Initialize and run migrations only from web service
 if [ "$SERVICE_NAME" = "web" ]; then
     echo "Checking migrations..."
-
-    # Set proper DB_PATH if not provided
-    DB_PATH=${DB_PATH:-"/app/data/sqlite/app.db"}
-
-    # Create database directory if it doesn't exist
-    DB_DIR=$(dirname "$DB_PATH")
-    mkdir -p "$DB_DIR"
-
-    # Create database file if it doesn't exist and set permissions
-    touch "$DB_PATH"
-    chown appuser:appuser "$DB_PATH"
-    chmod 664 "$DB_PATH"
+    
+    # Create database file with proper permissions
+    touch /app/data/sqlite/app.db
+    chown appuser:appuser /app/data/sqlite/app.db
+    chmod 664 /app/data/sqlite/app.db
 
     # Initialize alembic if not already initialized
     if [ ! -f "/app/migrations/env.py" ]; then
         echo "Initializing alembic..."
-        gosu appuser alembic init migrations
+        gosu appuser alembic init -t async /app/migrations
     fi
 
     # Run migrations
