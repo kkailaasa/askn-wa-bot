@@ -17,27 +17,36 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    broker_connection_retry_on_startup=True,  # Add this line
+
     # Task settings
-    task_acks_late=True,  # Tasks are acknowledged after execution
-    task_reject_on_worker_lost=True,  # Tasks are rejected if worker disconnects
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+
     # Queue settings
     task_queues={
         'high': {'routing_key': 'high'},
         'default': {'routing_key': 'default'},
         'low': {'routing_key': 'low'}
     },
+
+    # Beat settings
+    beat_schedule_filename='/app/celerybeat-schedule',  # Add this line
+
     # Retry settings
-    task_retry_delay_start=1,  # Start with 1 second delay
-    task_max_retries=3,  # Maximum number of retries
+    task_retry_delay_start=1,
+    task_max_retries=3,
+
     # Rate limiting
-    task_default_rate_limit='100/s',  # Default rate limit per worker
+    task_default_rate_limit='100/s',
+
     # Error handling
     task_annotations={
         '*': {
             'rate_limit': '100/s',
             'retry_backoff': True,
-            'retry_backoff_max': 600,  # Maximum retry delay of 10 minutes
-            'retry_jitter': True  # Add randomness to retry delays
+            'retry_backoff_max': 600,
+            'retry_jitter': True
         }
     }
 )
