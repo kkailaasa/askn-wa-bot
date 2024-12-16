@@ -15,6 +15,8 @@ services:
       - sqlite_data:/app/data
     networks:
       - default
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   celery_worker:
     build: .
@@ -32,6 +34,8 @@ services:
       - sqlite_data:/app/data
     networks:
       - default
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   celery_beat:
     build: .
@@ -49,6 +53,8 @@ services:
       - sqlite_data:/app/data
     networks:
       - default
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   redis:
     image: "redis:alpine"
