@@ -1,4 +1,5 @@
 # app/services/dify.py
+
 from dify_client import ChatClient
 import structlog
 import re
@@ -6,7 +7,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from fastapi import HTTPException
 from app.core.config import settings
-from utils.redis_helpers import AsyncRedisLock, cache
+from app.utils.redis_helpers import AsyncRedisLock, cache  # Fixed import path
 
 logger = structlog.get_logger(__name__)
 
@@ -186,7 +187,9 @@ class DifyService:
             raise HTTPException(status_code=500, detail="Failed to process message")
 
     async def health_check(self) -> bool:
+        """Check if Dify service is healthy"""
         try:
             return await self.chat_client.health_check()
-        except:
+        except Exception as e:
+            logger.error("dify_health_check_failed", error=str(e))
             return False
