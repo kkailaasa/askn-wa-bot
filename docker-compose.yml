@@ -6,12 +6,13 @@ services:
       - "7262:8000"
     depends_on:
       - redis
-      - db
     environment:
       - SERVICE_NAME=web
       - PYTHONPATH=/app
     env_file:
       - .env
+    volumes:
+      - ./app/data:/app/data  # For SQLite database persistence
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -19,52 +20,43 @@ services:
 
   celery_worker:
     build: .
-    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "high,default,low", "--loglevel=info"]
+    command: celery -A app.worker.celery_app worker --loglevel=info
     depends_on:
       - redis
-      - db
     environment:
       - SERVICE_NAME=celery_worker
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
     env_file:
       - .env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./app/data:/app/data  # Share SQLite database
     networks:
       - default
 
   celery_beat:
     build: .
-    command: ["celery", "-A", "app.worker.celery_app", "beat", "--loglevel=info"]
+    command: celery -A app.worker.celery_app beat --loglevel=info
     depends_on:
       - redis
-      - db
     environment:
       - SERVICE_NAME=celery_beat
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
     env_file:
       - .env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./app/data:/app/data  # Share SQLite database
     networks:
       - default
 
   redis:
     image: "redis:alpine"
     volumes:
-      - ./data/redis_data:/data
+      - redis_data:/data
     command: redis-server --appendonly yes
-    networks:
-      - default
-
-  db:
-    image: postgres:15-alpine
-    volumes:
-      - ./data/postgres_data:/var/lib/postgresql/data
-    env_file:
-      - .env
+    sysctls:
+      - vm.overcommit_memory=1
     networks:
       - default
 
@@ -74,4 +66,3 @@ networks:
 
 volumes:
   redis_data:
-  postgres_data:
