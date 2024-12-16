@@ -8,7 +8,7 @@ services:
     environment:
       - SERVICE_NAME=web
       - PYTHONPATH=/app
-      - DB_PATH=/app/data/app.db
+      - DB_PATH=/app/data/sqlite/app.db
     env_file:
       - .env
     volumes:
@@ -25,7 +25,7 @@ services:
       - SERVICE_NAME=celery_worker
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
-      - DB_PATH=/app/data/app.db
+      - DB_PATH=/app/data/sqlite/app.db
     env_file:
       - .env
     volumes:
@@ -42,7 +42,7 @@ services:
       - SERVICE_NAME=celery_beat
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
-      - DB_PATH=/app/data/app.db
+      - DB_PATH=/app/data/sqlite/app.db
     env_file:
       - .env
     volumes:

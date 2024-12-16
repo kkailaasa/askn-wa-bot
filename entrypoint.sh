@@ -1,14 +1,14 @@
 #!/bin/bash
 set -e
 
-# Create required directories
-mkdir -p /app/data
+# Create required directories with proper structure
+mkdir -p /app/data/sqlite
 mkdir -p /app/logs
 mkdir -p /app/temp
 mkdir -p /app/migrations
-
-# Create celery schedule directory
 mkdir -p /app/celery
+
+# Create celery schedule directory and file
 touch /app/celery/celerybeat-schedule
 
 # Set proper permissions for directories and files
@@ -20,13 +20,13 @@ if [ "$SERVICE_NAME" = "web" ]; then
     echo "Checking migrations..."
 
     # Set proper DB_PATH if not provided
-    DB_PATH=${DB_PATH:-"/app/data/app.db"}
+    DB_PATH=${DB_PATH:-"/app/data/sqlite/app.db"}
 
-    # Create database directory
+    # Create database directory if it doesn't exist
     DB_DIR=$(dirname "$DB_PATH")
     mkdir -p "$DB_DIR"
 
-    # Create database file and set permissions
+    # Create database file if it doesn't exist and set permissions
     touch "$DB_PATH"
     chown appuser:appuser "$DB_PATH"
     chmod 664 "$DB_PATH"
