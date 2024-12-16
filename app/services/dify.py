@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from fastapi import HTTPException
 from app.core.config import settings
-from app.utils.redis_helpers import AsyncRedisLock, cache  # Fixed import path
+from app.utils.redis_helpers import AsyncRedisLock, cache
 
 logger = structlog.get_logger(__name__)
 
@@ -151,6 +151,7 @@ class DifyService:
         conversation_id: Optional[str] = None,
         auth_context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
+        """Send message to Dify service"""
         try:
             # Input validation and sanitization
             if not message:
@@ -195,11 +196,3 @@ class DifyService:
                 error_type=type(e).__name__
             )
             raise HTTPException(status_code=500, detail="Failed to process message")
-
-    async def health_check(self) -> bool:
-        """Check if Dify service is healthy"""
-        try:
-            return await self.chat_client.health_check()
-        except Exception as e:
-            logger.error("dify_health_check_failed", error=str(e))
-            return False
