@@ -21,6 +21,11 @@ from app.utils.redis_helpers import cache
 # Configure logging
 logger = structlog.get_logger()
 
+# Initialize services
+load_balancer = LoadBalancer()
+dify_service = DifyService()
+twilio_client = TwilioClient()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -32,22 +37,19 @@ async def lifespan(app: FastAPI):
         # Create database tables
         Base.metadata.create_all(bind=engine)
 
-        # Initialize services
-        lb = LoadBalancer()
-        dify = DifyService()
-        twilio = TwilioClient()
-
         # Check Redis connection
-        if not await cache.ping():
-            logger.error("redis_connection_failed")
-            
+        await cache.ping()
+
+        # Verify service connections
+        await dify_service.health_check()
+        await twilio_client.health_check()
+
         logger.info(
             "application_startup",
             app_name=settings.APP_NAME,
             version=settings.APP_VERSION,
             environment=settings.ENVIRONMENT
         )
-
     except Exception as e:
         logger.error("startup_error", error=str(e))
         raise
@@ -66,7 +68,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="WhatsApp Bot API",
+    description="KAILASA AI WhatsApp Bot",
     lifespan=lifespan,
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None
@@ -75,7 +77,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ALLOWED_ORIGINS.split(","),
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -85,8 +87,11 @@ app.add_middleware(
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()
+
     try:
         response = await call_next(request)
+
+        # Log request details
         logger.info(
             "request_processed",
             path=request.url.path,
@@ -95,7 +100,9 @@ async def log_requests(request: Request, call_next):
             duration=time.time() - start_time,
             client_ip=request.headers.get("CF-Connecting-IP", request.client.host)
         )
+
         return response
+
     except Exception as e:
         logger.error(
             "request_failed",
@@ -104,6 +111,7 @@ async def log_requests(request: Request, call_next):
             error=str(e),
             duration=time.time() - start_time
         )
+
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error"}
@@ -119,6 +127,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         error=str(exc),
         error_type=type(exc).__name__
     )
+
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"}
@@ -130,7 +139,6 @@ app.include_router(api_router, prefix="/api")
 # Root endpoint
 @app.get("/")
 async def root():
-    """Root endpoint returning basic application info"""
     return {
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
@@ -140,7 +148,6 @@ async def root():
 # Health check endpoint
 @app.get("/health")
 async def health():
-    """Basic health check endpoint"""
     return {
         "status": "healthy",
         "timestamp": time.time(),
@@ -152,5 +159,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=settings.PORT,
-        reload=settings.DEBUG
+        reload=settings.DEBUG,
+        workers=4
     )
