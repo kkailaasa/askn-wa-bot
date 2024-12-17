@@ -15,9 +15,7 @@ services:
       - sqlite_data:/app/data
     networks:
       - default
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
+      - dify_network
   celery_worker:
     build: .
     command: celery -A app.worker.celery_app worker --loglevel=info
@@ -34,9 +32,7 @@ services:
       - sqlite_data:/app/data
     networks:
       - default
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
+      - dify_network
   celery_beat:
     build: .
     command: celery -A app.worker.celery_app beat --loglevel=info
@@ -53,9 +49,7 @@ services:
       - sqlite_data:/app/data
     networks:
       - default
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
+      - dify_network
   redis:
     image: "redis:alpine"
     volumes:
@@ -63,10 +57,14 @@ services:
     command: redis-server --appendonly yes
     networks:
       - default
+      - dify_network
 
 networks:
   default:
     driver: bridge
+  dify_network:
+    external: true
+    name: dify-chandra_default
 
 volumes:
   redis_data:
