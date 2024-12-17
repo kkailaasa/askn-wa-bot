@@ -3,6 +3,7 @@
 from dify_client import ChatClient
 import structlog
 import re
+import asyncio
 from typing import Optional, Dict, Any
 from datetime import datetime
 from fastapi import HTTPException
@@ -40,8 +41,14 @@ class DifyService:
     async def health_check(self) -> bool:
         """Check if Dify service is healthy by trying to list conversations"""
         try:
-            # Try to get conversations as a basic health check
-            await self.chat_client.get_conversations(user="healthcheck")
+            # Create event loop for sync operation
+            loop = asyncio.get_event_loop()
+            # Run the synchronous method in a thread pool
+            await loop.run_in_executor(
+                None, 
+                self.chat_client.get_conversations,
+                "healthcheck"
+            )
             return True
         except Exception as e:
             logger.error("dify_health_check_failed", error=str(e))
@@ -125,7 +132,13 @@ class DifyService:
 
             # Use distributed lock to prevent concurrent requests
             async with AsyncRedisLock(f"dify_conv:{formatted_user}"):
-                conversations = await self.chat_client.get_conversations(user=formatted_user)
+                # Run synchronous method in thread pool
+                loop = asyncio.get_event_loop()
+                conversations = await loop.run_in_executor(
+                    None,
+                    self.chat_client.get_conversations,
+                    formatted_user
+                )
 
                 if conversations:
                     conv_id = conversations[0].get("id")
@@ -160,13 +173,17 @@ class DifyService:
             sanitized_message = self._sanitize_message(message)
             formatted_phone = await self.format_phone_number(user)
 
-            # Prepare request payload
-            response = await self.chat_client.create_chat_message(
-                query=sanitized_message,
-                user=formatted_phone,
-                conversation_id=conversation_id,
-                inputs=auth_context or {},
-                response_mode="blocking"
+            # Run synchronous method in thread pool
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.chat_client.create_chat_message(
+                    query=sanitized_message,
+                    user=formatted_phone,
+                    conversation_id=conversation_id,
+                    inputs=auth_context or {},
+                    response_mode="blocking"
+                )
             )
 
             # Handle auth verification needs
