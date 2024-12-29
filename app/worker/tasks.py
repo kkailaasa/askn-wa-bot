@@ -1,16 +1,20 @@
 # app/worker/tasks.py
 
 import asyncio
+import nest_asyncio
 from celery import shared_task
 from app.worker.celery_app import celery_app
 from app.services.dify import DifyService, DifyError
 from app.services.twilio import TwilioClient
 from app.services.load_balancer import LoadBalancer
-from app.db.database import SessionLocal, Base, engine
+from app.db.database import SessionLocal
 from app.db.models import MessageLog, ErrorLog
 import structlog
 from datetime import datetime
 from typing import Optional, Dict, Any
+
+# Enable nested event loops
+nest_asyncio.apply()
 
 logger = structlog.get_logger()
 
@@ -22,15 +26,6 @@ load_balancer = LoadBalancer()
 class MessageProcessingError(Exception):
     """Custom exception for message processing errors"""
     pass
-
-def setup_event_loop():
-    """Set up and return an event loop"""
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop
 
 @shared_task(
     name="process_message",
@@ -54,10 +49,11 @@ def process_message(
 
     db = SessionLocal()
     start_time = datetime.utcnow()
-    loop = setup_event_loop()
 
-    async def async_process():
+    async def process_operations():
         """Handle all async operations"""
+        nonlocal conversation_id
+
         try:
             # Get conversation ID if not provided
             if not conversation_id:
@@ -68,14 +64,13 @@ def process_message(
                         from_number=from_number
                     )
                     raise MessageProcessingError("Could not create conversation")
-            else:
-                conv_id = conversation_id
+                conversation_id = conv_id
 
             # Get response from Dify
             dify_response = await dify_service.send_message(
                 user=from_number,
                 message=body,
-                conversation_id=conv_id
+                conversation_id=conversation_id
             )
 
             if not dify_response or "message" not in dify_response:
@@ -96,15 +91,19 @@ def process_message(
             if not twilio_response:
                 raise MessageProcessingError("Failed to send response")
 
-            return dify_response, twilio_response, conv_id
+            return dify_response, twilio_response
 
         except Exception as e:
             logger.error("process_error", error=str(e))
             raise MessageProcessingError(f"Processing error: {str(e)}")
 
     try:
-        # Run async process in the event loop
-        dify_response, twilio_response, conv_id = loop.run_until_complete(async_process())
+        # Create new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        # Run async operations
+        dify_response, twilio_response = loop.run_until_complete(process_operations())
 
         # Log successful message
         message_log = MessageLog(
@@ -113,7 +112,7 @@ def process_message(
             to_number=to_number,
             message=body,
             response=dify_response.get("message", ""),
-            conversation_id=conv_id,
+            conversation_id=conversation_id,
             media_data=media_data,
             processing_time=(datetime.utcnow() - start_time).total_seconds()
         )
@@ -156,12 +155,9 @@ def process_message(
         raise MessageProcessingError(str(e))
 
     finally:
+        db.close()
         try:
-            # Clean up
-            pending = asyncio.all_tasks(loop)
-            loop.run_until_complete(asyncio.gather(*pending))
+            loop.run_until_complete(loop.shutdown_asyncgens())
             loop.close()
         except Exception as e:
             logger.error("loop_cleanup_error", error=str(e))
-
-        db.close()
