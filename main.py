@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
     try:
         # Create database tables
         Base.metadata.create_all(bind=engine)
+        logger.info("database_tables_created")
 
         # Check Redis connection
         await cache.ping()

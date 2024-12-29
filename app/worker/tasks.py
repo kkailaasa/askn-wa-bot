@@ -6,7 +6,7 @@ from app.worker.celery_app import celery_app
 from app.services.dify import DifyService
 from app.services.twilio import TwilioClient
 from app.services.load_balancer import LoadBalancer
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, Base, engine
 from app.db.models import MessageLog, ErrorLog
 import structlog
 from datetime import datetime
@@ -18,6 +18,9 @@ logger = structlog.get_logger()
 dify_service = DifyService()
 twilio_client = TwilioClient()
 load_balancer = LoadBalancer()
+
+# Ensure database tables are created
+Base.metadata.create_all(bind=engine)
 
 @shared_task(
     name="process_message",
@@ -38,26 +41,29 @@ def process_message(
     conversation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Process incoming WhatsApp message through Dify and send response via Twilio"""
-    
+
     # Create new event loop for async operations
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
+
     db = SessionLocal()
     start_time = datetime.utcnow()
+    current_conversation_id = conversation_id  # Store conversation_id in outer scope
 
     try:
         # Run async operations in the event loop
         async def process():
+            nonlocal current_conversation_id  # Use nonlocal to modify outer scope variable
+
             # Get or create conversation if not provided
-            if not conversation_id:
-                conversation_id = await dify_service.get_conversation_id(from_number)
+            if not current_conversation_id:
+                current_conversation_id = await dify_service.get_conversation_id(from_number)
 
             # Get response from Dify
             dify_response = await dify_service.send_message(
                 user=from_number,
                 message=body,
-                conversation_id=conversation_id
+                conversation_id=current_conversation_id
             )
 
             # Get available number for response
@@ -87,7 +93,7 @@ def process_message(
             to_number=to_number,
             message=body,
             response=dify_response["message"],
-            conversation_id=conversation_id,
+            conversation_id=current_conversation_id,
             media_data=media_data,
             processing_time=(datetime.utcnow() - start_time).total_seconds()
         )
@@ -101,24 +107,31 @@ def process_message(
         }
 
     except Exception as e:
-        # Log error
-        error_log = ErrorLog(
-            error_type=type(e).__name__,
-            error_message=str(e),
-            error_metadata={
-                "message_sid": message_sid,
-                "from_number": from_number,
-                "conversation_id": conversation_id
-            }
-        )
-        db.add(error_log)
-        db.commit()
-
         logger.error(
             "message_processing_error",
             error=str(e),
             message_sid=message_sid
         )
+
+        try:
+            # Log error
+            error_log = ErrorLog(
+                error_type=type(e).__name__,
+                error_message=str(e),
+                error_metadata={
+                    "message_sid": message_sid,
+                    "from_number": from_number,
+                    "conversation_id": current_conversation_id
+                }
+            )
+            db.add(error_log)
+            db.commit()
+        except Exception as db_error:
+            logger.error(
+                "error_logging_failed",
+                error=str(db_error),
+                original_error=str(e)
+            )
 
         raise e
 
