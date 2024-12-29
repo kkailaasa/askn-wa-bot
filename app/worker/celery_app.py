@@ -2,13 +2,13 @@
 
 from celery import Celery
 from app.core.config import settings
-import os
 
 # Initialize Celery with Redis broker
 celery_app = Celery(
     "worker",
     broker=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}",
-    backend=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
+    backend=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}",
+    include=['app.worker.tasks']  # Make sure tasks module is included
 )
 
 # Configure Celery
@@ -31,9 +31,14 @@ celery_app.conf.update(
         'low': {'routing_key': 'low'}
     },
 
+    # Task routes
+    task_routes={
+        'process_message': {'queue': 'high'}
+    },
+
     # Beat settings
     beat_schedule_filename='/app/celery/celerybeat-schedule',
-    beat_schedule={},  # Add your scheduled tasks here
+    beat_schedule={},
 
     # Retry settings
     task_retry_delay_start=1,

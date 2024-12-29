@@ -1,5 +1,6 @@
 # app/worker/tasks.py
 
+from celery import shared_task
 from app.worker.celery_app import celery_app
 from app.services.dify import DifyService
 from app.services.twilio import TwilioClient
@@ -7,7 +8,7 @@ from app.services.load_balancer import LoadBalancer
 from app.db.database import SessionLocal
 from app.db.models import MessageLog, ErrorLog
 import structlog
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 logger = structlog.get_logger()
@@ -17,8 +18,7 @@ dify_service = DifyService()
 twilio_client = TwilioClient()
 load_balancer = LoadBalancer()
 
-@celery_app.task(
-    bind=True,
+@shared_task(
     name="process_message",
     queue="high",
     max_retries=3,
@@ -27,7 +27,6 @@ load_balancer = LoadBalancer()
     retry_jitter=True
 )
 def process_message(
-    self,
     message_sid: str,
     from_number: str,
     to_number: str,
@@ -96,8 +95,7 @@ def process_message(
             error_metadata={
                 "message_sid": message_sid,
                 "from_number": from_number,
-                "conversation_id": conversation_id,
-                "retry_count": self.request.retries
+                "conversation_id": conversation_id
             }
         )
         db.add(error_log)
@@ -106,35 +104,15 @@ def process_message(
         logger.error(
             "message_processing_error",
             error=str(e),
-            message_sid=message_sid,
-            retry_count=self.request.retries
+            message_sid=message_sid
         )
-
-        # Retry with exponential backoff if not max retries
-        if self.request.retries < self.max_retries:
-            raise self.retry(exc=e)
 
         raise e
 
     finally:
         db.close()
 
-@celery_app.task(
-    bind=True,
-    name="cleanup_old_messages",
-    queue="low"
-)
-def cleanup_old_messages(self, days_old: int = 30):
-    """Cleanup old message logs"""
-    db = SessionLocal()
-    try:
-        cutoff_date = datetime.utcnow() - timedelta(days=days_old)
-        db.query(MessageLog).filter(
-            MessageLog.timestamp < cutoff_date
-        ).delete()
-        db.commit()
-    except Exception as e:
-        logger.error("cleanup_error", error=str(e))
-        raise
-    finally:
-        db.close()
+# Update celery app configuration
+celery_app.conf.task_routes = {
+    'process_message': {'queue': 'high'}
+}
