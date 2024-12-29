@@ -58,7 +58,7 @@ class DifyService:
                 )
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
-        
+
         raise last_error
 
     async def get_conversation_id(self, user: str) -> Optional[str]:
@@ -74,26 +74,18 @@ class DifyService:
 
             # Use distributed lock
             async with AsyncRedisLock(f"dify_conv:{formatted_user}"):
-                # Get conversations with retry
-                conversations = await self._execute_with_retry(
-                    self.chat_client.get_conversations,
-                    formatted_user
+                # Send initial message to create conversation
+                response = await self._execute_with_retry(
+                    self.chat_client.create_chat_message,
+                    query="init",
+                    user=formatted_user,
+                    conversation_id=None,  # This will create a new conversation
+                    inputs={},
+                    response_mode="blocking"
                 )
 
-                if conversations and isinstance(conversations, list) and len(conversations) > 0:
-                    conv_id = conversations[0].get("id")
-                    if conv_id:
-                        await cache.set(cache_key, conv_id, expiry=3600)
-                        return conv_id
-
-                # If no existing conversation, create new one
-                new_conv = await self._execute_with_retry(
-                    self.chat_client.create_conversation,
-                    formatted_user
-                )
-                
-                if new_conv and isinstance(new_conv, dict):
-                    conv_id = new_conv.get("id")
+                if isinstance(response, dict):
+                    conv_id = response.get("conversation_id")
                     if conv_id:
                         await cache.set(cache_key, conv_id, expiry=3600)
                         return conv_id
@@ -166,8 +158,8 @@ class DifyService:
             if not phone_number.startswith('+'):
                 phone_number = f"+{phone_number}"
 
-            # Validate format
-            if not re.match(r'^\+\d{10,15}$', phone_number):
+            # Basic validation - we'll make this more lenient
+            if not re.match(r'^\+?\d{10,15}$', phone_number):
                 raise DifyError("Invalid phone number format", "INVALID_PHONE")
 
             return phone_number
@@ -183,9 +175,13 @@ class DifyService:
     async def health_check(self) -> bool:
         """Check if Dify service is healthy"""
         try:
+            # Try to send a test message
             await self._execute_with_retry(
-                self.chat_client.get_conversations,
-                "healthcheck"
+                self.chat_client.create_chat_message,
+                query="healthcheck",
+                user="healthcheck",
+                inputs={},
+                response_mode="blocking"
             )
             return True
         except Exception as e:
