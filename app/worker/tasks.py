@@ -11,6 +11,7 @@ from app.db.models import MessageLog, ErrorLog
 import structlog
 from datetime import datetime
 from typing import Optional, Dict, Any
+from contextlib import asynccontextmanager
 
 logger = structlog.get_logger()
 
@@ -19,12 +20,26 @@ dify_service = DifyService()
 twilio_client = TwilioClient()
 load_balancer = LoadBalancer()
 
-# Ensure database tables are created
-Base.metadata.create_all(bind=engine)
-
 class MessageProcessingError(Exception):
     """Custom exception for message processing errors"""
     pass
+
+@asynccontextmanager
+async def get_event_loop():
+    """Context manager for event loop handling"""
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    try:
+        yield loop
+    finally:
+        try:
+            pending = asyncio.all_tasks(loop)
+            loop.run_until_complete(asyncio.gather(*pending))
+        except Exception as e:
+            logger.error("event_loop_cleanup_error", error=str(e))
 
 @shared_task(
     name="process_message",
@@ -46,78 +61,77 @@ def process_message(
 ) -> Dict[str, Any]:
     """Process incoming WhatsApp message"""
 
-    # Create new event loop for async operations
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     db = SessionLocal()
     start_time = datetime.utcnow()
-    current_conversation_id = conversation_id
+
+    async def async_process():
+        try:
+            # Get conversation ID if not provided
+            if not conversation_id:
+                conv_id = await dify_service.get_conversation_id(from_number)
+                if not conv_id:
+                    logger.error(
+                        "conversation_creation_failed",
+                        from_number=from_number
+                    )
+                    raise MessageProcessingError("Could not create conversation")
+            else:
+                conv_id = conversation_id
+
+            # Get response from Dify
+            dify_response = await dify_service.send_message(
+                user=from_number,
+                message=body,
+                conversation_id=conv_id
+            )
+
+            if not dify_response or "message" not in dify_response:
+                raise MessageProcessingError("Invalid Dify response")
+
+            # Get available number for response
+            response_number = await load_balancer.get_available_number()
+            if not response_number:
+                raise MessageProcessingError("No available numbers")
+
+            # Send response via Twilio
+            twilio_response = await twilio_client.send_message(
+                to=from_number,
+                body=dify_response["message"],
+                from_number=response_number
+            )
+
+            if not twilio_response:
+                raise MessageProcessingError("Failed to send response")
+
+            return dify_response, twilio_response, conv_id
+
+        except Exception as e:
+            logger.error("process_error", error=str(e))
+            raise MessageProcessingError(f"Processing error: {str(e)}")
 
     try:
-        async def process():
-            nonlocal current_conversation_id
+        async with get_event_loop() as loop:
+            dify_response, twilio_response, conv_id = loop.run_until_complete(async_process())
 
-            try:
-                # Get or create conversation
-                if not current_conversation_id:
-                    current_conversation_id = await dify_service.get_conversation_id(from_number)
-                    if not current_conversation_id:
-                        raise MessageProcessingError("Failed to create conversation")
+            # Log successful message
+            message_log = MessageLog(
+                message_sid=message_sid,
+                from_number=from_number,
+                to_number=to_number,
+                message=body,
+                response=dify_response.get("message", ""),
+                conversation_id=conv_id,
+                media_data=media_data,
+                processing_time=(datetime.utcnow() - start_time).total_seconds()
+            )
+            db.add(message_log)
+            db.commit()
 
-                # Get response from Dify
-                dify_response = await dify_service.send_message(
-                    user=from_number,
-                    message=body,
-                    conversation_id=current_conversation_id
-                )
-
-                # Get available number for response
-                response_number = await load_balancer.get_available_number()
-                if not response_number:
-                    raise MessageProcessingError("No available WhatsApp numbers")
-
-                # Send response via Twilio
-                twilio_response = await twilio_client.send_message(
-                    to=from_number,
-                    body=dify_response["message"],
-                    from_number=response_number
-                )
-
-                if not twilio_response:
-                    raise MessageProcessingError("Failed to send Twilio message")
-
-                return dify_response, twilio_response
-
-            except DifyError as e:
-                logger.error("dify_service_error", error=str(e), message_sid=message_sid)
-                raise MessageProcessingError(f"Dify service error: {str(e)}")
-            except Exception as e:
-                logger.error("process_error", error=str(e), message_sid=message_sid)
-                raise MessageProcessingError(f"Processing error: {str(e)}")
-
-        # Run async operations
-        dify_response, twilio_response = loop.run_until_complete(process())
-
-        # Log successful message
-        message_log = MessageLog(
-            message_sid=message_sid,
-            from_number=from_number,
-            to_number=to_number,
-            message=body,
-            response=dify_response.get("message", ""),
-            conversation_id=current_conversation_id,
-            media_data=media_data,
-            processing_time=(datetime.utcnow() - start_time).total_seconds()
-        )
-        db.add(message_log)
-        db.commit()
-
-        return {
-            "status": "success",
-            "message_sid": message_sid,
-            "response_sid": twilio_response.get("sid")
-        }
+            return {
+                "status": "success",
+                "message_sid": message_sid,
+                "response_sid": twilio_response.get("sid")
+            }
 
     except Exception as e:
         logger.error(
@@ -134,7 +148,7 @@ def process_message(
                 error_metadata={
                     "message_sid": message_sid,
                     "from_number": from_number,
-                    "conversation_id": current_conversation_id
+                    "conversation_id": conversation_id
                 }
             )
             db.add(error_log)
@@ -146,12 +160,7 @@ def process_message(
                 original_error=str(e)
             )
 
-        # Raise custom exception for retry
         raise MessageProcessingError(str(e))
 
     finally:
         db.close()
-        try:
-            loop.close()
-        except Exception as e:
-            logger.error("loop_close_error", error=str(e))

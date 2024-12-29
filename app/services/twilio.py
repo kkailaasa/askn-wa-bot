@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any
 import structlog
 from app.core.config import settings
 import asyncio
+import re
 
 logger = structlog.get_logger()
 
@@ -23,18 +24,38 @@ class TwilioClient:
             number_count=len(self.numbers)
         )
 
-    async def send_message(self, to: str, body: str, from_number: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def _format_whatsapp_number(self, number: str) -> str:
+        """Format phone number for WhatsApp"""
+        # Remove any existing whatsapp: prefix and spaces
+        number = number.replace("whatsapp:", "").strip()
+
+        # Remove any non-digit characters except +
+        number = re.sub(r'[^\d+]', '', number)
+
+        # Ensure number starts with +
+        if not number.startswith('+'):
+            number = f"+{number}"
+
+        # Add whatsapp: prefix
+        return f"whatsapp:{number}"
+
+    async def send_message(
+        self,
+        to: str,
+        body: str,
+        from_number: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Send WhatsApp message using Twilio"""
         try:
             # Format numbers for WhatsApp
-            to_number = f"whatsapp:{to}" if not to.startswith("whatsapp:") else to
+            to_number = self._format_whatsapp_number(to)
 
             # Use provided number or first available number
             from_number = from_number or self.numbers[0]
-            from_wa = f"whatsapp:{from_number}" if not from_number.startswith("whatsapp:") else from_number
+            from_wa = self._format_whatsapp_number(from_number)
 
             # Run Twilio API call in thread pool
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             message = await loop.run_in_executor(
                 None,
                 lambda: self.client.messages.create(
@@ -69,7 +90,7 @@ class TwilioClient:
     async def health_check(self) -> bool:
         """Check if Twilio service is healthy"""
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
                 lambda: self.client.api.accounts(settings.TWILIO_ACCOUNT_SID).fetch()
