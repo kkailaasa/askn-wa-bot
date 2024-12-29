@@ -1,5 +1,6 @@
 # app/worker/tasks.py
 
+import asyncio
 from celery import shared_task
 from app.worker.celery_app import celery_app
 from app.services.dify import DifyService
@@ -37,35 +38,47 @@ def process_message(
     conversation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Process incoming WhatsApp message through Dify and send response via Twilio"""
+    
+    # Create new event loop for async operations
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     db = SessionLocal()
     start_time = datetime.utcnow()
 
     try:
-        # Get or create conversation if not provided
-        if not conversation_id:
-            conversation_id = dify_service.get_conversation_id(from_number)
+        # Run async operations in the event loop
+        async def process():
+            # Get or create conversation if not provided
+            if not conversation_id:
+                conversation_id = await dify_service.get_conversation_id(from_number)
 
-        # Get response from Dify
-        dify_response = dify_service.send_message(
-            user=from_number,
-            message=body,
-            conversation_id=conversation_id
-        )
+            # Get response from Dify
+            dify_response = await dify_service.send_message(
+                user=from_number,
+                message=body,
+                conversation_id=conversation_id
+            )
 
-        # Get available number for response
-        response_number = load_balancer.get_available_number()
-        if not response_number:
-            raise Exception("No available WhatsApp numbers")
+            # Get available number for response
+            response_number = await load_balancer.get_available_number()
+            if not response_number:
+                raise Exception("No available WhatsApp numbers")
 
-        # Send response via Twilio
-        twilio_response = twilio_client.send_message(
-            to=from_number,
-            body=dify_response["message"],
-            from_number=response_number
-        )
+            # Send response via Twilio
+            twilio_response = await twilio_client.send_message(
+                to=from_number,
+                body=dify_response["message"],
+                from_number=response_number
+            )
 
-        if not twilio_response:
-            raise Exception("Failed to send Twilio message")
+            if not twilio_response:
+                raise Exception("Failed to send Twilio message")
+
+            return dify_response, twilio_response
+
+        # Run async operations
+        dify_response, twilio_response = loop.run_until_complete(process())
 
         # Log successful message
         message_log = MessageLog(
@@ -111,8 +124,4 @@ def process_message(
 
     finally:
         db.close()
-
-# Update celery app configuration
-celery_app.conf.task_routes = {
-    'process_message': {'queue': 'high'}
-}
+        loop.close()
