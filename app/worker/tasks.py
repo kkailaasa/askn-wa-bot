@@ -3,7 +3,7 @@
 import asyncio
 from celery import shared_task
 from app.worker.celery_app import celery_app
-from app.services.dify import DifyService
+from app.services.dify import DifyService, DifyError
 from app.services.twilio import TwilioClient
 from app.services.load_balancer import LoadBalancer
 from app.db.database import SessionLocal, Base, engine
@@ -22,11 +22,15 @@ load_balancer = LoadBalancer()
 # Ensure database tables are created
 Base.metadata.create_all(bind=engine)
 
+class MessageProcessingError(Exception):
+    """Custom exception for message processing errors"""
+    pass
+
 @shared_task(
     name="process_message",
     queue="high",
     max_retries=3,
-    autoretry_for=(Exception,),
+    autoretry_for=(MessageProcessingError,),
     retry_backoff=True,
     retry_jitter=True
 )
@@ -40,7 +44,7 @@ def process_message(
     request_log_id: Optional[int] = None,
     conversation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Process incoming WhatsApp message through Dify and send response via Twilio"""
+    """Process incoming WhatsApp message"""
 
     # Create new event loop for async operations
     loop = asyncio.new_event_loop()
@@ -48,40 +52,49 @@ def process_message(
 
     db = SessionLocal()
     start_time = datetime.utcnow()
-    current_conversation_id = conversation_id  # Store conversation_id in outer scope
+    current_conversation_id = conversation_id
 
     try:
-        # Run async operations in the event loop
         async def process():
-            nonlocal current_conversation_id  # Use nonlocal to modify outer scope variable
+            nonlocal current_conversation_id
 
-            # Get or create conversation if not provided
-            if not current_conversation_id:
-                current_conversation_id = await dify_service.get_conversation_id(from_number)
+            try:
+                # Get or create conversation
+                if not current_conversation_id:
+                    current_conversation_id = await dify_service.get_conversation_id(from_number)
+                    if not current_conversation_id:
+                        raise MessageProcessingError("Failed to create conversation")
 
-            # Get response from Dify
-            dify_response = await dify_service.send_message(
-                user=from_number,
-                message=body,
-                conversation_id=current_conversation_id
-            )
+                # Get response from Dify
+                dify_response = await dify_service.send_message(
+                    user=from_number,
+                    message=body,
+                    conversation_id=current_conversation_id
+                )
 
-            # Get available number for response
-            response_number = await load_balancer.get_available_number()
-            if not response_number:
-                raise Exception("No available WhatsApp numbers")
+                # Get available number for response
+                response_number = await load_balancer.get_available_number()
+                if not response_number:
+                    raise MessageProcessingError("No available WhatsApp numbers")
 
-            # Send response via Twilio
-            twilio_response = await twilio_client.send_message(
-                to=from_number,
-                body=dify_response["message"],
-                from_number=response_number
-            )
+                # Send response via Twilio
+                twilio_response = await twilio_client.send_message(
+                    to=from_number,
+                    body=dify_response["message"],
+                    from_number=response_number
+                )
 
-            if not twilio_response:
-                raise Exception("Failed to send Twilio message")
+                if not twilio_response:
+                    raise MessageProcessingError("Failed to send Twilio message")
 
-            return dify_response, twilio_response
+                return dify_response, twilio_response
+
+            except DifyError as e:
+                logger.error("dify_service_error", error=str(e), message_sid=message_sid)
+                raise MessageProcessingError(f"Dify service error: {str(e)}")
+            except Exception as e:
+                logger.error("process_error", error=str(e), message_sid=message_sid)
+                raise MessageProcessingError(f"Processing error: {str(e)}")
 
         # Run async operations
         dify_response, twilio_response = loop.run_until_complete(process())
@@ -92,7 +105,7 @@ def process_message(
             from_number=from_number,
             to_number=to_number,
             message=body,
-            response=dify_response["message"],
+            response=dify_response.get("message", ""),
             conversation_id=current_conversation_id,
             media_data=media_data,
             processing_time=(datetime.utcnow() - start_time).total_seconds()
@@ -133,8 +146,12 @@ def process_message(
                 original_error=str(e)
             )
 
-        raise e
+        # Raise custom exception for retry
+        raise MessageProcessingError(str(e))
 
     finally:
         db.close()
-        loop.close()
+        try:
+            loop.close()
+        except Exception as e:
+            logger.error("loop_close_error", error=str(e))
