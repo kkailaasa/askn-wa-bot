@@ -11,7 +11,6 @@ from app.db.models import MessageLog, ErrorLog
 import structlog
 from datetime import datetime
 from typing import Optional, Dict, Any
-from contextlib import asynccontextmanager
 
 logger = structlog.get_logger()
 
@@ -24,22 +23,14 @@ class MessageProcessingError(Exception):
     """Custom exception for message processing errors"""
     pass
 
-@asynccontextmanager
-async def get_event_loop():
-    """Context manager for event loop handling"""
+def setup_event_loop():
+    """Set up and return an event loop"""
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    try:
-        yield loop
-    finally:
-        try:
-            pending = asyncio.all_tasks(loop)
-            loop.run_until_complete(asyncio.gather(*pending))
-        except Exception as e:
-            logger.error("event_loop_cleanup_error", error=str(e))
+    return loop
 
 @shared_task(
     name="process_message",
@@ -63,8 +54,10 @@ def process_message(
 
     db = SessionLocal()
     start_time = datetime.utcnow()
+    loop = setup_event_loop()
 
     async def async_process():
+        """Handle all async operations"""
         try:
             # Get conversation ID if not provided
             if not conversation_id:
@@ -110,28 +103,28 @@ def process_message(
             raise MessageProcessingError(f"Processing error: {str(e)}")
 
     try:
-        async with get_event_loop() as loop:
-            dify_response, twilio_response, conv_id = loop.run_until_complete(async_process())
+        # Run async process in the event loop
+        dify_response, twilio_response, conv_id = loop.run_until_complete(async_process())
 
-            # Log successful message
-            message_log = MessageLog(
-                message_sid=message_sid,
-                from_number=from_number,
-                to_number=to_number,
-                message=body,
-                response=dify_response.get("message", ""),
-                conversation_id=conv_id,
-                media_data=media_data,
-                processing_time=(datetime.utcnow() - start_time).total_seconds()
-            )
-            db.add(message_log)
-            db.commit()
+        # Log successful message
+        message_log = MessageLog(
+            message_sid=message_sid,
+            from_number=from_number,
+            to_number=to_number,
+            message=body,
+            response=dify_response.get("message", ""),
+            conversation_id=conv_id,
+            media_data=media_data,
+            processing_time=(datetime.utcnow() - start_time).total_seconds()
+        )
+        db.add(message_log)
+        db.commit()
 
-            return {
-                "status": "success",
-                "message_sid": message_sid,
-                "response_sid": twilio_response.get("sid")
-            }
+        return {
+            "status": "success",
+            "message_sid": message_sid,
+            "response_sid": twilio_response.get("sid")
+        }
 
     except Exception as e:
         logger.error(
@@ -163,4 +156,12 @@ def process_message(
         raise MessageProcessingError(str(e))
 
     finally:
+        try:
+            # Clean up
+            pending = asyncio.all_tasks(loop)
+            loop.run_until_complete(asyncio.gather(*pending))
+            loop.close()
+        except Exception as e:
+            logger.error("loop_cleanup_error", error=str(e))
+
         db.close()
