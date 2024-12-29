@@ -1,6 +1,6 @@
 # app/services/dify.py
 
-from dify_client import ChatClient
+import aiohttp
 import structlog
 import re
 import asyncio
@@ -20,86 +20,57 @@ class DifyError(Exception):
 
 class DifyService:
     def __init__(self):
-        try:
-            self.chat_client = ChatClient(settings.DIFY_KEY)
-            self.chat_client.base_url = settings.DIFY_URL
-            self.cache_prefix = "dify_chat:"
-
-            logger.info(
-                "dify_service_initialized",
-                dify_url=settings.DIFY_URL,
-                max_connections=settings.DIFY_MAX_CONNECTIONS
-            )
-        except Exception as e:
-            logger.error(
-                "dify_service_initialization_failed",
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            raise
-
-    async def _execute_with_retry(self, func, *args, max_retries=3, **kwargs):
-        """Execute a function with retry logic"""
-        last_error = None
-        for attempt in range(max_retries):
-            try:
-                loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: func(*args, **kwargs)
-                )
-                return result
-            except Exception as e:
-                last_error = e
-                logger.warning(
-                    "dify_operation_retry",
-                    attempt=attempt + 1,
-                    error=str(e)
-                )
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
-
-        raise last_error
+        """Initialize Dify service with API configuration"""
+        self.api_base = settings.DIFY_URL.rstrip('/')
+        self.api_key = settings.DIFY_KEY
+        self.headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+        self.cache_prefix = "dify_chat:"
+        
+        logger.info(
+            "dify_service_initialized",
+            dify_url=settings.DIFY_URL
+        )
 
     async def get_conversation_id(self, user: str) -> Optional[str]:
-        """Get conversation ID for a user with caching and error handling"""
+        """Get existing conversation ID for user from Dify"""
         try:
             formatted_user = await self.format_phone_number(user)
             cache_key = f"{self.cache_prefix}conv:{formatted_user}"
 
-            # Check cache
+            # Check cache first
             cached_id = await cache.get(cache_key)
             if cached_id:
                 return cached_id
 
-            # Use distributed lock
-            async with AsyncRedisLock(f"dify_conv:{formatted_user}"):
-                # Send initial message to create conversation
-                response = await self._execute_with_retry(
-                    self.chat_client.create_chat_message,
-                    query="init",
-                    user=formatted_user,
-                    conversation_id=None,  # This will create a new conversation
-                    inputs={},
-                    response_mode="blocking"
-                )
-
-                if isinstance(response, dict):
-                    conv_id = response.get("conversation_id")
-                    if conv_id:
-                        await cache.set(cache_key, conv_id, expiry=3600)
-                        return conv_id
-
+            # Make API request to get conversations
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self.api_base}/conversations",
+                    headers=self.headers,
+                    params={"user": formatted_user, "limit": 1}
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        conversations = data.get("data", [])
+                        if conversations:
+                            conv_id = conversations[0].get("id")
+                            if conv_id:
+                                await cache.set(cache_key, conv_id, expiry=3600)
+                                return conv_id
+            
+            # No existing conversation found
             return None
 
         except Exception as e:
             logger.error(
                 "get_conversation_failed",
                 user=user,
-                error=str(e),
-                error_type=type(e).__name__
+                error=str(e)
             )
-            raise DifyError(f"Failed to get conversation: {str(e)}")
+            return None
 
     async def send_message(
         self,
@@ -107,35 +78,45 @@ class DifyService:
         message: str,
         conversation_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Send message to Dify service with improved error handling"""
+        """Send message to Dify API"""
         try:
             if not message:
-                raise DifyError("Message cannot be empty", "INVALID_MESSAGE")
+                raise DifyError("Message cannot be empty")
 
             formatted_user = await self.format_phone_number(user)
 
-            # Create chat message with retry
-            response = await self._execute_with_retry(
-                self.chat_client.create_chat_message,
-                query=message,
-                user=formatted_user,
-                conversation_id=conversation_id,
-                inputs={},
-                response_mode="blocking"
-            )
-
-            if not isinstance(response, dict):
-                raise DifyError("Invalid response format from Dify")
-
-            answer = response.get("answer")
-            if not answer:
-                raise DifyError("No response received from Dify")
-
-            return {
-                "message": answer,
-                "conversation_id": response.get("conversation_id", conversation_id),
-                "timestamp": datetime.utcnow().isoformat()
+            # Prepare request payload
+            payload = {
+                "query": message,
+                "user": formatted_user,
+                "response_mode": "blocking",
+                "conversation_id": conversation_id or "",
+                "inputs": {}
             }
+
+            # Send request to Dify API
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.api_base}/chat-messages",
+                    headers=self.headers,
+                    json=payload
+                ) as response:
+                    if response.status != 200:
+                        error_data = await response.json()
+                        raise DifyError(
+                            error_data.get("message", "Unknown error"),
+                            error_data.get("code", "UNKNOWN_ERROR")
+                        )
+
+                    data = await response.json()
+                    
+                    # Extract relevant information from response
+                    return {
+                        "message": data.get("answer", ""),
+                        "conversation_id": data.get("conversation_id", conversation_id),
+                        "message_id": data.get("message_id", ""),
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
 
         except DifyError:
             raise
@@ -143,24 +124,20 @@ class DifyService:
             logger.error(
                 "send_message_failed",
                 user=user,
-                error=str(e),
-                error_type=type(e).__name__
+                error=str(e)
             )
             raise DifyError(f"Failed to process message: {str(e)}")
 
     async def format_phone_number(self, phone_number: str) -> str:
-        """Format phone number for Dify chat"""
+        """Format phone number for Dify API"""
         try:
-            # Remove whatsapp: prefix and whitespace
+            # Remove whatsapp: prefix and clean up
             phone_number = phone_number.replace("whatsapp:", "").strip()
+            phone_number = re.sub(r'[^\d+]', '', phone_number)
 
             # Ensure it starts with +
             if not phone_number.startswith('+'):
                 phone_number = f"+{phone_number}"
-
-            # Basic validation - we'll make this more lenient
-            if not re.match(r'^\+?\d{10,15}$', phone_number):
-                raise DifyError("Invalid phone number format", "INVALID_PHONE")
 
             return phone_number
 
@@ -173,17 +150,15 @@ class DifyService:
             raise DifyError(f"Failed to format phone number: {str(e)}")
 
     async def health_check(self) -> bool:
-        """Check if Dify service is healthy"""
+        """Check Dify API health by checking parameters endpoint"""
         try:
-            # Try to send a test message
-            await self._execute_with_retry(
-                self.chat_client.create_chat_message,
-                query="healthcheck",
-                user="healthcheck",
-                inputs={},
-                response_mode="blocking"
-            )
-            return True
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self.api_base}/parameters",
+                    headers=self.headers,
+                    params={"user": "health_check"}
+                ) as response:
+                    return response.status == 200
         except Exception as e:
             logger.error("dify_health_check_failed", error=str(e))
             return False
