@@ -134,7 +134,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # Include routers
-app.include_router(api_router, prefix="/api")
+app.include_router(api_router)
 
 # Root endpoint
 @app.get("/")

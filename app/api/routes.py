@@ -15,7 +15,7 @@ from app.db.models import MessageLog, ErrorLog, RequestLog
 from app.services.twilio import TwilioClient
 from app.services.dify import DifyService
 from app.services.load_balancer import LoadBalancer
-from app.api.dependencies import rate_limit, verify_api_key, validate_twilio_signature
+from app.api.dependencies import rate_limit, verify_api_key
 from app.utils.redis_helpers import cache
 from app.worker.tasks import process_message
 
@@ -289,12 +289,10 @@ async def handle_message(
     MediaContentType0: Optional[str] = Form(None),
     MediaUrl0: Optional[str] = Form(None),
     db = Depends(get_db),
-    _=Depends(validate_twilio_signature),
-    __=Depends(rate_limit(100, 60))  # 100 requests per minute
+    __=Depends(rate_limit(100, 60))  # Keep only rate limiting
 ):
     """
-    Handle incoming WhatsApp messages from Twilio.
-
+    Handle incoming WhatsApp messages.
     Only performs immediate tasks:
     1. Validates request
     2. Checks for duplicates
@@ -353,7 +351,7 @@ async def handle_message(
                 "body": Body,
                 "media_data": media_data,
                 "cloudflare_data": cf_data,
-                "request_log_id": request_log.id  # Pass the log ID for updating later
+                "request_log_id": request_log.id
             },
             queue="high",
             priority=0
@@ -372,7 +370,7 @@ async def handle_message(
         }
 
     except Exception as e:
-        # Log error
+        # Error handling remains the same
         error_log = ErrorLog(
             error_type=type(e).__name__,
             error_message=str(e),
@@ -384,7 +382,6 @@ async def handle_message(
         )
         db.add(error_log)
 
-        # Update request log if it exists
         if 'request_log' in locals():
             request_log.response_status = 500
             request_log.processing_time = (datetime.utcnow() - start_time).total_seconds()
@@ -401,7 +398,6 @@ async def handle_message(
             message_sid=MessageSid
         )
 
-        # Always return 200 to Twilio to prevent retries
         return {
             "status": "error",
             "message": "Message received but queueing failed",
