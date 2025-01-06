@@ -28,7 +28,7 @@ class DifyService:
             'Content-Type': 'application/json'
         }
         self.cache_prefix = "dify_chat:"
-        
+
         logger.info(
             "dify_service_initialized",
             dify_url=settings.DIFY_URL
@@ -60,7 +60,7 @@ class DifyService:
                             if conv_id:
                                 await cache.set(cache_key, conv_id, expiry=3600)
                                 return conv_id
-            
+
             # No existing conversation found
             return None
 
@@ -109,7 +109,7 @@ class DifyService:
                         )
 
                     data = await response.json()
-                    
+
                     # Extract relevant information from response
                     return {
                         "message": data.get("answer", ""),
