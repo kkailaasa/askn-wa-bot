@@ -1,12 +1,13 @@
-# docker-compose.yml
-
 version: '3.8'
 services:
   web:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: an-wa-bot:v1
     container_name: an-wa-bot
     ports:
-      - "8050:8050"
+      - "8051:8050"
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -15,8 +16,6 @@ services:
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
       - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
       - TWILIO_NUMBER=${TWILIO_NUMBER}
-      - RATE_LIMIT=${RATE_LIMIT}
-      - TIME_WINDOW=${TIME_WINDOW}
     depends_on:
       - redis
       - celery_worker
@@ -24,6 +23,7 @@ services:
       - ./app_data:/app/app_data
     networks:
       - internal
+      - dify_network
     restart: unless-stopped
 
   redis:
@@ -37,6 +37,9 @@ services:
     restart: unless-stopped
 
   celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: an-wa-bot:v1
     container_name: celery_worker
     command: celery -A scheduler.tasks worker --loglevel=info
@@ -48,19 +51,21 @@ services:
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
       - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
       - TWILIO_NUMBER=${TWILIO_NUMBER}
-      - RATE_LIMIT=${RATE_LIMIT}
-      - TIME_WINDOW=${TIME_WINDOW}
     depends_on:
       - redis
     volumes:
       - ./app_data:/app/app_data
     networks:
       - internal
+      - dify_network
     restart: unless-stopped
 
 networks:
   internal:
     driver: bridge
+  dify_network:
+    external: true
+    name: dify-chandra_default
 
 volumes:
   app_data:
