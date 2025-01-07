@@ -1,3 +1,4 @@
+# tasks.py
 from celery import Celery
 from dify_client import ChatClient
 from decouple import config
@@ -17,19 +18,16 @@ app.conf.update(
 )
 
 async def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
-    """
-    Upload a file from URL to Dify's file storage
-    Returns file info if successful, None if failed
-    """
+    """Upload a file from URL to Dify's file storage"""
     try:
         dify_base_url = config('DIFY_BASE_URL')
         dify_key = config('DIFY_KEY')
         upload_url = f"{dify_base_url}/files/upload"
 
-        # Download file from Twilio URL to temporary file
+        # Download file from Twilio URL
         response = requests.get(url, stream=True)
         response.raise_for_status()
-
+        
         content_type = response.headers.get('content-type', '')
 
         # Create temporary file with proper extension
@@ -51,7 +49,7 @@ async def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
                 files = {'file': (f'image{extension}', f, content_type)}
                 headers = {'Authorization': f'Bearer {dify_key}'}
                 data = {'user': user}
-
+                
                 upload_response = requests.post(
                     upload_url,
                     headers=headers,
@@ -59,7 +57,7 @@ async def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
                     data=data
                 )
                 upload_response.raise_for_status()
-
+                
                 return upload_response.json()
         finally:
             # Clean up temporary file
@@ -69,60 +67,54 @@ async def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
         logger.error(f"Error uploading file to Dify: {str(e)}")
         return None
 
-async def process_media_items(media_items: List[Dict], user: str) -> List[Dict]:
-    """Process media items and upload to Dify"""
-    uploaded_files = []
-
-    for item in media_items:
-        url = item.get('url')
-        if not url:
-            continue
-
-        file_info = await upload_file_to_dify(url, user)
-        if file_info:
-            uploaded_files.append({
-                'file_id': file_info['id'],
-                'type': 'image'
-            })
-            logger.info(f"Successfully uploaded file to Dify: {file_info['id']}")
-
-    return uploaded_files
-
 @app.task
-async def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = None):
-    logger.info("Processing new message")
-    dify_key = config("DIFY_KEY")
-    chat_client = ChatClient(dify_key)
-
+def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = None):
+    """
+    Process incoming WhatsApp message with optional media
+    
+    Args:
+        Body: Message text
+        From: Sender's phone number
+        media_items: List of media items with URLs and types
+    """
+    logger.info(f"Processing message - From: {From}, Media Items: {len(media_items) if media_items else 0}")
+    
     try:
         if is_rate_limited(From):
             logger.info(f"Rate limit exceeded for {From}")
             send_message(From, "You have exceeded the message rate limit. Please try again later.")
             return
 
+        dify_key = config("DIFY_KEY")
+        chat_client = ChatClient(dify_key)
         chat_client.base_url = config('DIFY_BASE_URL')
+
+        # Format user identifier
         dify_user = From if From.startswith("whatsapp:") else f"whatsapp:{From.strip()}"
 
-        # Upload media files if present
-        uploaded_files = []
-        if media_items:
-            uploaded_files = await process_media_items(media_items, dify_user)
-            if not uploaded_files:
-                logger.warning("Failed to upload media files to Dify")
-
-        # Get conversation ID
+        # Get existing conversation
         conversation_id = None
         conversations = chat_client.get_conversations(user=dify_user)
         conversations.raise_for_status()
 
         if "data" in conversations.json():
             conversation_list = conversations.json().get("data")
-            if len(conversation_list) > 0:
+            if conversation_list:
                 conversation_id = conversation_list[0].get("id")
 
-        logger.info(f"Using conversation ID: {conversation_id}")
+        # Process media if present
+        uploaded_files = []
+        if media_items:
+            for item in media_items:
+                file_info = await upload_file_to_dify(item['url'], dify_user)
+                if file_info:
+                    uploaded_files.append({
+                        'file_id': file_info['id'],
+                        'type': 'image'
+                    })
+                    logger.info(f"File uploaded to Dify: {file_info['id']}")
 
-        # Prepare message with file references
+        # Prepare message
         message_params = {
             'inputs': {},
             'query': Body or "Please analyze this image",
@@ -134,24 +126,20 @@ async def process_question(Body: str, From: str, media_items: Optional[List[Dict
         if conversation_id:
             message_params['conversation_id'] = conversation_id
 
-        # Send message to Dify
+        # Send to Dify
         response = chat_client.create_chat_message(**message_params)
         response.raise_for_status()
-
         result = response.json().get("answer")
 
-        # Validate response
         if not result:
             raise ValueError("Empty response from Dify")
 
-        logger.info(f"Sending response to {From}")
-
-        # Log the interaction and send response
-        log_message(From, Body, result, "success")
+        # Send response back to user
         send_message(From, result)
+        log_message(From, Body, result, "success")
 
     except Exception as e:
-        logger.error(f"Error processing message from {From}: {str(e)}")
+        logger.error(f"Error processing message: {str(e)}")
         log_message(From, Body, str(e), "error")
         error_msg = "Sorry, I encountered an error processing your message. Please try again later."
         send_message(From, error_msg)

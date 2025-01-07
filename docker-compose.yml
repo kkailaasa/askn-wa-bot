@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile
     container_name: an_wa_bot
     ports:
-      - "8051:8050"
+      - "8051:8000"
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379

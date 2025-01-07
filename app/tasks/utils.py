@@ -5,6 +5,7 @@ from twilio.rest import Client
 from decouple import config
 from app.db.models import MessageLog
 from app.db.database import SessionLocal
+from typing import Optional, List, Dict, Union
 
 # Twilio configuration
 account_sid = config('TWILIO_ACCOUNT_SID')
@@ -23,7 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def log_message(phone_number, message, response, status):
+def log_message(phone_number: str, message: str, response: str, status: str):
     db = SessionLocal()
     try:
         log_entry = MessageLog(
@@ -40,32 +41,66 @@ def log_message(phone_number, message, response, status):
     finally:
         db.close()
 
-def send_message(to_number, body_text):
+def send_message(
+    to_number: str,
+    body_text: Optional[str] = None,
+    media_url: Optional[Union[str, List[str]]] = None
+) -> Optional[str]:
+    """
+    Send a WhatsApp message with optional media
+
+    Args:
+        to_number: Destination phone number
+        body_text: Optional text message
+        media_url: Optional media URL or list of URLs
+
+    Returns:
+        Message SID if successful, None otherwise
+    """
     try:
-        # Validate message body
-        if not body_text or body_text.strip() == "":
-            logger.error(f"Empty message body for {to_number}")
+        # Validate at least one of body or media is present
+        if not body_text and not media_url:
+            logger.error("Both message body and media are empty")
             return None
 
         # Format WhatsApp number correctly
         if not to_number.startswith("whatsapp:"):
             to_number = f"whatsapp:{to_number.strip()}"
         else:
-            # Remove any spaces after "whatsapp:"
             parts = to_number.split(":")
             to_number = f"{parts[0]}:{parts[1].strip()}"
 
-        message = client.messages.create(
-            from_=f"whatsapp:{twilio_number.strip()}",
-            body=body_text,
-            to=to_number
+        # Prepare message parameters
+        message_params = {
+            'from_': f"whatsapp:{twilio_number.strip()}",
+            'to': to_number
+        }
+
+        # Add body if present
+        if body_text and body_text.strip():
+            message_params['body'] = body_text
+
+        # Add media if present
+        if media_url:
+            if isinstance(media_url, str):
+                media_url = [media_url]
+            message_params['media_url'] = media_url
+
+        # Send message
+        message = client.messages.create(**message_params)
+
+        logger.info(f"Message sent to {to_number} - SID: {message.sid}")
+        log_message(
+            to_number,
+            f"Body: {body_text}, Media: {media_url}",
+            f"Message SID: {message.sid}",
+            "success"
         )
-        logger.info(f"Message sent to {to_number}: {message.body}")
-        log_message(to_number, "", body_text, "success")
-        return message
+        return message.sid
+
     except Exception as e:
         logger.error(f"Error sending message to {to_number}: {e}")
-        log_message(to_number, "", str(e), "error")
+        log_message(to_number, body_text or "", str(e), "error")
         raise e
 
 # Redis rate limiting
@@ -73,7 +108,8 @@ redis_client = redis.StrictRedis(host='redis', port=6379)
 RATE_LIMIT = config('RATE_LIMIT', default=2, cast=int)
 TIME_WINDOW = config('TIME_WINDOW', default=60, cast=int)
 
-def is_rate_limited(phone_number):
+def is_rate_limited(phone_number: str) -> bool:
+    """Check if a phone number has exceeded rate limits"""
     key = f"rate_limit:{phone_number}"
     current_count = redis_client.get(key)
 
@@ -86,3 +122,19 @@ def is_rate_limited(phone_number):
     else:
         log_message(phone_number, "", "Rate limit exceeded", "rate_limited")
         return True
+
+def get_mime_type(file_extension: str) -> Optional[str]:
+    """Get MIME type for common WhatsApp supported formats"""
+    mime_types = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'webp': 'image/webp',
+        'pdf': 'application/pdf',
+        'mp3': 'audio/mpeg',
+        'mp4': 'video/mp4',
+        'ogg': 'audio/ogg',
+        'amr': 'audio/amr',
+        'vcf': 'text/x-vcard'
+    }
+    return mime_types.get(file_extension.lower())
