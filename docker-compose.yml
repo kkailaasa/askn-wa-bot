@@ -4,7 +4,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: an-wa-bot:v1
     container_name: an-wa-bot
     ports:
       - "8051:8050"
@@ -40,7 +39,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: an-wa-bot:v1
     container_name: celery_worker
     command: celery -A scheduler.tasks worker --loglevel=info
     environment:
