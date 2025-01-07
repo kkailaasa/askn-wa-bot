@@ -40,7 +40,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: an_wa_celery_worker
-    command: celery -A scheduler.tasks worker --loglevel=info
+    command: celery -A app.scheduler.tasks worker --loglevel=info
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379

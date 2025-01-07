@@ -22,6 +22,9 @@ COPY . .
 RUN mkdir -p /app/app_data && \
     chmod 777 /app/app_data
 
+# Add the current directory to PYTHONPATH
+ENV PYTHONPATH=/app:${PYTHONPATH}
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 

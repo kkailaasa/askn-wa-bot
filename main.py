@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Form
-from scheduler.tasks import process_question
+from app.scheduler.tasks import process_question
 
 app = FastAPI()
 
