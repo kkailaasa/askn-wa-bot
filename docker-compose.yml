@@ -1,29 +1,38 @@
+# docker-compose.yml
+
 version: '3.8'
 services:
   web:
     image: an-wa-bot:v1
-    container_name: ask_nithyananda_web
+    container_name: an-wa-bot
     ports:
       - "8050:8050"
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - DIFY_BASE_URL=${DIFY_BASE_URL}
+      - DIFY_KEY=${DIFY_KEY}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_NUMBER=${TWILIO_NUMBER}
     depends_on:
       - redis
       - celery_worker
     volumes:
-      - ./app_data:/app/data
+      - ./app_data:/app/app_data
     networks:
       - internal
+    restart: unless-stopped
 
   redis:
-    image: redis:6.2
+    image: redis:6.2-alpine
     container_name: redis
     volumes:
       - ./redis_data:/data
-    command: ["redis-server", "--bind", "127.0.0.1", "--bind", "0.0.0.0", "--protected-mode", "yes"]
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
     networks:
       - internal
+    restart: unless-stopped
 
   celery_worker:
     image: an-wa-bot:v1
@@ -32,13 +41,23 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - DIFY_BASE_URL=${DIFY_BASE_URL}
+      - DIFY_KEY=${DIFY_KEY}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_NUMBER=${TWILIO_NUMBER}
     depends_on:
       - redis
     volumes:
-      - ./app_data:/app/data
+      - ./app_data:/app/app_data
     networks:
       - internal
+    restart: unless-stopped
 
 networks:
   internal:
     driver: bridge
+
+volumes:
+  app_data:
+  redis_data:

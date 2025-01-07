@@ -1,17 +1,29 @@
-# Use the official Python image as a base
-FROM python:3.10
+# Dockerfile
+FROM python:3.10-slim
 
-# Set the working directory
+# Set working directory
 WORKDIR /app
 
-# Copy the requirements file into the container
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-# Install the Python dependencies
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the FastAPI application code into the container
+# Copy the application code
 COPY . .
 
-# Run the FastAPI application with Uvicorn
+# Create directory for SQLite database and logs
+RUN mkdir -p /app/app_data && \
+    chmod 777 /app/app_data
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+
+# Default command
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8050"]
