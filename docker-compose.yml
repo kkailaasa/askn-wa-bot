@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: an-wa-bot
+    container_name: an_wa_bot
     ports:
       - "8051:8050"
     environment:
@@ -27,7 +27,7 @@ services:
 
   redis:
     image: redis:6.2-alpine
-    container_name: redis
+    container_name: an_wa_redis
     volumes:
       - ./redis_data:/data
     command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
@@ -39,7 +39,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: celery_worker
+    container_name: an_wa_celery_worker
     command: celery -A scheduler.tasks worker --loglevel=info
     environment:
       - REDIS_HOST=redis
