@@ -42,11 +42,21 @@ def log_message(phone_number, message, response, status):
 
 def send_message(to_number, body_text):
     try:
+        # Validate message body
+        if not body_text or body_text.strip() == "":
+            logger.error(f"Empty message body for {to_number}")
+            return None
+
+        # Format WhatsApp number correctly
         if not to_number.startswith("whatsapp:"):
-            to_number = f"whatsapp:{to_number}"
+            to_number = f"whatsapp:{to_number.strip()}"
+        else:
+            # Remove any spaces after "whatsapp:"
+            parts = to_number.split(":")
+            to_number = f"{parts[0]}:{parts[1].strip()}"
 
         message = client.messages.create(
-            from_=f"whatsapp:{twilio_number}",
+            from_=f"whatsapp:{twilio_number.strip()}",
             body=body_text,
             to=to_number
         )

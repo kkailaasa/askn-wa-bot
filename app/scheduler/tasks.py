@@ -29,7 +29,10 @@ def process_question(Body: str, From: str):
 
         # Check for existing conversation
         conversation_id = None
-        conversations = chat_client.get_conversations(user=From)
+        # Format user identifier for Dify
+        dify_user = From if From.startswith("whatsapp:") else f"whatsapp:{From.strip()}"
+
+        conversations = chat_client.get_conversations(user=dify_user)
         conversations.raise_for_status()
 
         if "data" in conversations.json():
@@ -41,18 +44,23 @@ def process_question(Body: str, From: str):
 
         # Process message
         if not conversation_id:
-            response = chat_client.create_chat_message(inputs={}, query=Body, user=From, response_mode="blocking")
+            response = chat_client.create_chat_message(inputs={}, query=Body, user=dify_user, response_mode="blocking")
         else:
             response = chat_client.create_chat_message(
                 inputs={},
                 query=Body,
-                user=From,
+                user=dify_user,
                 conversation_id=conversation_id,
                 response_mode="blocking"
             )
 
         response.raise_for_status()
         result = response.json().get("answer")
+
+        # Validate response
+        if not result:
+            raise ValueError("Empty response from Dify")
+
         logger.info(f"Sending response to {From}")
 
         # Log the interaction and send response
@@ -62,4 +70,5 @@ def process_question(Body: str, From: str):
     except Exception as e:
         logger.error(f"Error processing message from {From}: {str(e)}")
         log_message(From, Body, str(e), "error")
-        send_message(From, "Sorry, I encountered an error processing your message. Please try again later.")
+        error_msg = "Sorry, I encountered an error processing your message. Please try again later."
+        send_message(From, error_msg)
