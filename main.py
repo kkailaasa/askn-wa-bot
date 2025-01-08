@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Form, HTTPException
+from fastapi import FastAPI, Form, HTTPException, Request
 from typing import Optional
 from app.scheduler.tasks import process_question
 from app.db.database import init_db
@@ -36,27 +36,31 @@ async def root():
     }
 
 @app.post("/message")
-async def reply(
-    Body: Optional[str] = Form(None),
-    From: Optional[str] = Form(None),
-    MessageSid: Optional[str] = Form(None),
-    To: Optional[str] = Form(None),
-    MessageStatus: Optional[str] = Form(None),
-    SmsStatus: Optional[str] = Form(None),
-    NumMedia: Optional[str] = Form("0"),
-    MediaUrl0: Optional[str] = Form(None),
-    MediaContentType0: Optional[str] = Form(None),
-    WaId: Optional[str] = Form(None),
-    ProfileName: Optional[str] = Form(None),
-    **kwargs  # This will catch additional media URLs if present
-):
+async def reply(request: Request):
     try:
+        # Get form data
+        form = await request.form()
+
+        # Log all incoming data for debugging
+        logger.info("Received webhook data:")
+        for key, value in form.items():
+            logger.info(f"{key}: {value}")
+
+        # Extract fields with defaults
+        message_sid = form.get('MessageSid', '')
+        body = form.get('Body', '')
+        from_number = form.get('From', '')
+        to_number = form.get('To', '')
+        num_media = form.get('NumMedia', '0')
+        message_status = form.get('MessageStatus', '')
+        sms_status = form.get('SmsStatus', '')
+
         # Log basic request info
-        logger.info(f"Received webhook - From: {From}, To: {To}, MessageSid: {MessageSid}")
+        logger.info(f"Received webhook - MessageSid: {message_sid}, From: {from_number}, To: {to_number}")
 
         # Handle status updates
-        if MessageStatus or SmsStatus:
-            status = MessageStatus or SmsStatus
+        if message_status or sms_status:
+            status = message_status or sms_status
             logger.info(f"Status update received: {status}")
             return {
                 "status": "success",
@@ -64,27 +68,29 @@ async def reply(
                 "message": f"Status update ({status}) received"
             }
 
-        # Clean the phone number if present
-        if From:
-            From = From.strip()
-            if not From.startswith("whatsapp:"):
-                From = f"whatsapp:{From}"
+        # Validate essential fields for message processing
+        if not from_number:
+            logger.error("Missing From number")
+            return {
+                "status": "error",
+                "message": "Missing From number"
+            }
+
+        # Clean the phone number
+        from_number = from_number.strip()
+        if not from_number.startswith("whatsapp:"):
+            from_number = f"whatsapp:{from_number}"
 
         # Handle media messages
-        if NumMedia and int(NumMedia) > 0:
-            logger.info(f"Media message received - Count: {NumMedia}")
+        media_items = []
+        if num_media and int(num_media) > 0:
+            num_media_int = int(num_media)
+            logger.info(f"Media message received - Count: {num_media_int}")
 
             # Collect all media URLs and types
-            media_items = []
-            num_media = int(NumMedia)
-
-            # Get all media URLs from the form data
-            for i in range(num_media):
-                url_key = f"MediaUrl{i}"
-                content_type_key = f"MediaContentType{i}"
-
-                url = kwargs.get(url_key, None) if i > 0 else MediaUrl0
-                content_type = kwargs.get(content_type_key, None) if i > 0 else MediaContentType0
+            for i in range(num_media_int):
+                url = form.get(f'MediaUrl{i}')
+                content_type = form.get(f'MediaContentType{i}')
 
                 if url and content_type:
                     media_items.append({
@@ -94,14 +100,12 @@ async def reply(
                     })
                     logger.info(f"Media {i}: Type: {content_type}, URL: {url}")
 
-            # If we have a body message along with media, include it
-            message_text = Body if Body else "Image message"
+            # Message text for media messages
+            message_text = body if body else "Image message"
 
-            # Queue the message processing with media information
             try:
-                process_question.delay(message_text, From, media_items)
-                logger.info(f"Task queued successfully for {From} with {len(media_items)} media items")
-
+                process_question.delay(message_text, from_number, media_items)
+                logger.info(f"Task queued successfully for {from_number} with {len(media_items)} media items")
                 return {
                     "status": "success",
                     "message": "Message with media received and queued for processing"
@@ -114,17 +118,12 @@ async def reply(
                 )
 
         # Handle text-only messages
-        elif Body and From:
-            # Log message details
-            logger.info(f"Processing text message - From: {From}, ProfileName: {ProfileName}, Body: {Body}")
-            if WaId:
-                logger.info(f"WhatsApp ID: {WaId}")
+        elif body:
+            logger.info(f"Processing text message - From: {from_number}, Body: {body}")
 
-            # Queue message for processing
             try:
-                process_question.delay(Body, From)
-                logger.info(f"Task queued successfully for {From}")
-
+                process_question.delay(body, from_number)
+                logger.info(f"Task queued successfully for {from_number}")
                 return {
                     "status": "success",
                     "message": "Message received and queued for processing"
@@ -136,16 +135,15 @@ async def reply(
                     detail="Failed to process message"
                 )
 
-        # If we get here, it's a webhook with insufficient data
-        logger.warning("Received webhook with insufficient data")
-        return {
-            "status": "error",
-            "type": "unknown",
-            "message": "Insufficient data in webhook"
-        }
+        # Handle empty messages
+        else:
+            logger.warning("Received webhook with no message content")
+            return {
+                "status": "success",
+                "type": "unknown",
+                "message": "Webhook received but no message content found"
+            }
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Unexpected error processing webhook: {str(e)}")
         raise HTTPException(
