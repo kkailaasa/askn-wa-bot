@@ -123,11 +123,11 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
                         dify_user
                     )
                     if file_info:
-                        # CHANGE 1: Simplify the file object to match Dify API requirements
+                        # Update structure to match Dify API requirements
                         uploaded_files.append({
-                            'id': file_info['id'],
-                            'type': 'image',  # Required enum value for images
-                            'transfer_method': 'local_file'  # Required field
+                            'type': 'image',
+                            'transfer_method': 'local_file',
+                            'upload_file_id': file_info['id']  # Changed from 'id' to 'upload_file_id'
                         })
                         logger.info(f"File uploaded to Dify: {file_info['id']}")
 
@@ -137,14 +137,11 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
             'user': dify_user,
             'inputs': {},
             'files': uploaded_files,
-            'response_mode': "blocking",  # or "streaming" if you prefer
+            'response_mode': "blocking",
             'conversation_id': conversation_id if conversation_id else None
         }
 
-        if conversation_id:
-            message_params['conversation_id'] = conversation_id
-
-        # Send chat message
+        # Log the parameters for debugging
         logger.info(f"Sending chat message to: {chat_url}")
         logger.info(f"Message params: {message_params}")
 
