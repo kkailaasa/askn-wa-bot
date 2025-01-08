@@ -17,7 +17,7 @@ app.conf.update(
     enable_utc=True,
 )
 
-async def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
+def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
     """Upload a file from URL to Dify's file storage"""
     try:
         dify_base_url = config('DIFY_BASE_URL')
@@ -27,7 +27,7 @@ async def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
         # Download file from Twilio URL
         response = requests.get(url, stream=True)
         response.raise_for_status()
-        
+
         content_type = response.headers.get('content-type', '')
 
         # Create temporary file with proper extension
@@ -49,7 +49,7 @@ async def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
                 files = {'file': (f'image{extension}', f, content_type)}
                 headers = {'Authorization': f'Bearer {dify_key}'}
                 data = {'user': user}
-                
+
                 upload_response = requests.post(
                     upload_url,
                     headers=headers,
@@ -57,7 +57,7 @@ async def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
                     data=data
                 )
                 upload_response.raise_for_status()
-                
+
                 return upload_response.json()
         finally:
             # Clean up temporary file
@@ -71,14 +71,14 @@ async def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
 def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = None):
     """
     Process incoming WhatsApp message with optional media
-    
+
     Args:
         Body: Message text
         From: Sender's phone number
         media_items: List of media items with URLs and types
     """
     logger.info(f"Processing message - From: {From}, Media Items: {len(media_items) if media_items else 0}")
-    
+
     try:
         if is_rate_limited(From):
             logger.info(f"Rate limit exceeded for {From}")
@@ -106,7 +106,7 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         uploaded_files = []
         if media_items:
             for item in media_items:
-                file_info = await upload_file_to_dify(item['url'], dify_user)
+                file_info = upload_file_to_dify(item['url'], dify_user)
                 if file_info:
                     uploaded_files.append({
                         'file_id': file_info['id'],
