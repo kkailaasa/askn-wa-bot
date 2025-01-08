@@ -1,6 +1,7 @@
 # utils.py
 import logging
 import redis
+import requests
 from twilio.rest import Client
 from decouple import config
 from app.db.models import MessageLog
@@ -138,3 +139,29 @@ def get_mime_type(file_extension: str) -> Optional[str]:
         'vcf': 'text/x-vcard'
     }
     return mime_types.get(file_extension.lower())
+
+def download_media_from_twilio(media_url: str) -> Optional[bytes]:
+    """
+    Download media content from Twilio's media URL
+
+    Args:
+        media_url: The URL of the media to download
+
+    Returns:
+        Optional[bytes]: The media content as bytes if successful, None otherwise
+    """
+    try:
+        # Get media content using Twilio client credentials
+        response = requests.get(
+            media_url,
+            auth=(account_sid, auth_token),
+            stream=True
+        )
+        response.raise_for_status()
+
+        # Read and return the content
+        return response.content
+
+    except Exception as e:
+        logger.error(f"Error downloading media from Twilio: {str(e)}")
+        return None
