@@ -7,6 +7,7 @@ import requests
 from typing import Optional, List, Dict
 import tempfile
 import os
+from twilio.rest import Client
 
 app = Celery('tasks', broker='redis://redis:6379/0', backend='redis://redis:6379/0')
 app.conf.update(
@@ -17,18 +18,31 @@ app.conf.update(
     enable_utc=True,
 )
 
-def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
-    """Upload a file from URL to Dify's file storage"""
+# Initialize Twilio client
+account_sid = config('TWILIO_ACCOUNT_SID')
+auth_token = config('TWILIO_AUTH_TOKEN')
+twilio_client = Client(account_sid, auth_token)
+
+def download_media_from_twilio(media_url: str) -> Optional[bytes]:
+    """Download media from Twilio using authentication"""
+    try:
+        response = requests.get(
+            media_url,
+            auth=(account_sid, auth_token),
+            stream=True
+        )
+        response.raise_for_status()
+        return response.content
+    except Exception as e:
+        logger.error(f"Error downloading media from Twilio: {str(e)}")
+        return None
+
+def upload_file_to_dify(media_content: bytes, content_type: str, user: str) -> Optional[Dict]:
+    """Upload a file to Dify's file storage"""
     try:
         dify_base_url = config('DIFY_BASE_URL')
         dify_key = config('DIFY_KEY')
         upload_url = f"{dify_base_url}/files/upload"
-
-        # Download file from Twilio URL
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-
-        content_type = response.headers.get('content-type', '')
 
         # Create temporary file with proper extension
         extension = {
@@ -39,8 +53,7 @@ def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
         }.get(content_type, '.jpg')
 
         with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
-            for chunk in response.iter_content(chunk_size=8192):
-                temp_file.write(chunk)
+            temp_file.write(media_content)
             temp_file_path = temp_file.name
 
         # Upload file to Dify
@@ -69,14 +82,7 @@ def upload_file_to_dify(url: str, user: str) -> Optional[Dict]:
 
 @app.task
 def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = None):
-    """
-    Process incoming WhatsApp message with optional media
-
-    Args:
-        Body: Message text
-        From: Sender's phone number
-        media_items: List of media items with URLs and types
-    """
+    """Process incoming WhatsApp message with optional media"""
     logger.info(f"Processing message - From: {From}, Media Items: {len(media_items) if media_items else 0}")
 
     try:
@@ -106,13 +112,19 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         uploaded_files = []
         if media_items:
             for item in media_items:
-                file_info = upload_file_to_dify(item['url'], dify_user)
-                if file_info:
-                    uploaded_files.append({
-                        'file_id': file_info['id'],
-                        'type': 'image'
-                    })
-                    logger.info(f"File uploaded to Dify: {file_info['id']}")
+                media_content = download_media_from_twilio(item['url'])
+                if media_content:
+                    file_info = upload_file_to_dify(
+                        media_content,
+                        item['content_type'],
+                        dify_user
+                    )
+                    if file_info:
+                        uploaded_files.append({
+                            'file_id': file_info['id'],
+                            'type': 'image'
+                        })
+                        logger.info(f"File uploaded to Dify: {file_info['id']}")
 
         # Prepare message
         message_params = {
