@@ -23,26 +23,19 @@ account_sid = config('TWILIO_ACCOUNT_SID')
 auth_token = config('TWILIO_AUTH_TOKEN')
 twilio_client = Client(account_sid, auth_token)
 
-def download_media_from_twilio(media_url: str) -> Optional[bytes]:
-    """Download media from Twilio using authentication"""
-    try:
-        response = requests.get(
-            media_url,
-            auth=(account_sid, auth_token),
-            stream=True
-        )
-        response.raise_for_status()
-        return response.content
-    except Exception as e:
-        logger.error(f"Error downloading media from Twilio: {str(e)}")
-        return None
+def get_dify_base_url():
+    """Get base URL without trailing slash"""
+    base_url = config('DIFY_BASE_URL').rstrip('/')
+    if not base_url.endswith('/v1'):
+        base_url = f"{base_url}/v1"
+    return base_url
 
 def upload_file_to_dify(media_content: bytes, content_type: str, user: str) -> Optional[Dict]:
     """Upload a file to Dify's file storage"""
     try:
-        dify_base_url = config('DIFY_BASE_URL')
         dify_key = config('DIFY_KEY')
-        upload_url = f"{dify_base_url}/files/upload"
+        base_url = get_dify_base_url()
+        upload_url = f"{base_url}/files/upload"
 
         # Create temporary file with proper extension
         extension = {
@@ -56,13 +49,13 @@ def upload_file_to_dify(media_content: bytes, content_type: str, user: str) -> O
             temp_file.write(media_content)
             temp_file_path = temp_file.name
 
-        # Upload file to Dify
         try:
             with open(temp_file_path, 'rb') as f:
                 files = {'file': (f'image{extension}', f, content_type)}
                 headers = {'Authorization': f'Bearer {dify_key}'}
                 data = {'user': user}
 
+                logger.info(f"Uploading file to Dify: {upload_url}")
                 upload_response = requests.post(
                     upload_url,
                     headers=headers,
@@ -71,6 +64,8 @@ def upload_file_to_dify(media_content: bytes, content_type: str, user: str) -> O
                 )
                 upload_response.raise_for_status()
 
+                # Log response for debugging
+                logger.info(f"Dify upload response: {upload_response.text}")
                 return upload_response.json()
         finally:
             # Clean up temporary file
@@ -78,6 +73,8 @@ def upload_file_to_dify(media_content: bytes, content_type: str, user: str) -> O
 
     except Exception as e:
         logger.error(f"Error uploading file to Dify: {str(e)}")
+        if hasattr(e, 'response'):
+            logger.error(f"Upload response content: {e.response.text}")
         return None
 
 @app.task
@@ -92,19 +89,25 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
             return
 
         dify_key = config("DIFY_KEY")
-        chat_client = ChatClient(dify_key)
-        chat_client.base_url = config('DIFY_BASE_URL')
+        base_url = get_dify_base_url()
+        chat_url = f"{base_url}/chat-messages"
 
         # Format user identifier
         dify_user = From if From.startswith("whatsapp:") else f"whatsapp:{From.strip()}"
 
         # Get existing conversation
         conversation_id = None
-        conversations = chat_client.get_conversations(user=dify_user)
-        conversations.raise_for_status()
+        logger.info(f"Getting conversations from: {base_url}/conversations")
+        conversations_response = requests.get(
+            f"{base_url}/conversations",
+            headers={'Authorization': f'Bearer {dify_key}'},
+            params={'user': dify_user}
+        )
+        conversations_response.raise_for_status()
+        conversations_data = conversations_response.json()
 
-        if "data" in conversations.json():
-            conversation_list = conversations.json().get("data")
+        if "data" in conversations_data:
+            conversation_list = conversations_data.get("data")
             if conversation_list:
                 conversation_id = conversation_list[0].get("id")
 
@@ -121,16 +124,19 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
                     )
                     if file_info:
                         uploaded_files.append({
-                            'file_id': file_info['id'],
-                            'type': 'image'
+                            'id': file_info['id'],
+                            'type': 'image',
+                            'name': file_info.get('name', 'image'),
+                            'size': file_info.get('size', 0),
+                            'mime_type': file_info.get('mime_type', item['content_type'])
                         })
                         logger.info(f"File uploaded to Dify: {file_info['id']}")
 
-        # Prepare message
+        # Prepare message parameters
         message_params = {
-            'inputs': {},
             'query': Body or "Please analyze this image",
             'user': dify_user,
+            'inputs': {},
             'files': uploaded_files,
             'response_mode': "blocking"
         }
@@ -138,10 +144,21 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         if conversation_id:
             message_params['conversation_id'] = conversation_id
 
-        # Send to Dify
-        response = chat_client.create_chat_message(**message_params)
-        response.raise_for_status()
-        result = response.json().get("answer")
+        # Send chat message
+        logger.info(f"Sending chat message to: {chat_url}")
+        logger.info(f"Message params: {message_params}")
+
+        chat_response = requests.post(
+            chat_url,
+            headers={'Authorization': f'Bearer {dify_key}'},
+            json=message_params
+        )
+        chat_response.raise_for_status()
+
+        # Log response for debugging
+        logger.info(f"Chat response: {chat_response.text}")
+
+        result = chat_response.json().get("answer")
 
         if not result:
             raise ValueError("Empty response from Dify")
@@ -152,6 +169,8 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
 
     except Exception as e:
         logger.error(f"Error processing message: {str(e)}")
+        if hasattr(e, 'response'):
+            logger.error(f"Response content: {e.response.text}")
         log_message(From, Body, str(e), "error")
         error_msg = "Sorry, I encountered an error processing your message. Please try again later."
         send_message(From, error_msg)
