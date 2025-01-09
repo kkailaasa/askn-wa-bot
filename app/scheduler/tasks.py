@@ -67,17 +67,39 @@ def upload_file_to_nocodb(media_content: bytes, content_type: str, phone_number:
             logger.info(f"File upload response: {file_data}")
 
             # Response comes as a list with one dict
-            if not file_data or not isinstance(file_data, list) or not file_data[0].get('url'):
+            if not file_data or not isinstance(file_data, list) or not file_data[0].get('signedUrl'):
                 raise ValueError("Invalid upload response format")
 
-            file_url = file_data[0]['url']
+            file_url = file_data[0]['signedUrl']
 
-            # Now create the record with the file URL
+            # Create public share link
+            share_url = f"{base_url}/api/v2/storage/shared"
+            share_data = {
+                "url": file_url,
+                "duration": 365  # Share for 1 year
+            }
+
+            share_response = requests.post(
+                share_url,
+                headers=headers,
+                json=share_data
+            )
+            share_response.raise_for_status()
+            share_result = share_response.json()
+
+            if not share_result.get('url'):
+                raise ValueError("No public URL in share response")
+
+            public_url = share_result['url']
+            logger.info(f"Created public share URL: {public_url}")
+
+            # Now create the record with both URLs
             create_url = f"{base_url}/api/v2/tables/{table_id}/records"
             record_data = {
                 "phone_number": phone_number,
                 "profile_photo": [{
                     "url": file_url,
+                    "public_url": public_url,
                     "title": f"image_{phone_number}",
                     "mimetype": content_type,
                     "size": len(media_content)
@@ -94,7 +116,7 @@ def upload_file_to_nocodb(media_content: bytes, content_type: str, phone_number:
             )
             record_response.raise_for_status()
 
-            return {"url": file_url}
+            return {"url": public_url}
 
         finally:
             # Clean up temporary file
