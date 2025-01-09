@@ -7,3 +7,5 @@ dify-client
 redis
 celery
 sqlalchemy
+requests
+python-magic

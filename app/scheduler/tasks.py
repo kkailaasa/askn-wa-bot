@@ -37,57 +37,65 @@ def upload_file_to_nocodb(media_content: bytes, content_type: str, phone_number:
         api_token = config('NOCODB_API_TOKEN')
         table_id = config('NOCODB_TABLE_ID')
 
-        # Upload to NocoDB
-        headers = {
-            'xc-token': api_token,
-            'Content-Type': 'application/json'
-        }
+        # First, upload the file to NocoDB storage
+        upload_url = f"{base_url}/api/v2/storage/upload"
 
-        # Convert the media content to base64 for temporary storage
-        import base64
-        base64_content = base64.b64encode(media_content).decode('utf-8')
+        # Create a temporary file
+        extension = '.jpg' if 'jpeg' in content_type else '.' + content_type.split('/')[-1]
+        with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
+            temp_file.write(media_content)
+            temp_file_path = temp_file.name
 
-        # Create the record with path field
-        create_url = f"{base_url}/api/v2/tables/{table_id}/records"
+        try:
+            # Upload the file
+            files = {
+                'file': (f'image{extension}', open(temp_file_path, 'rb'), content_type)
+            }
+            headers = {
+                'xc-token': api_token
+            }
 
-        data = {
-            "phone_number": phone_number,
-            "profile_photo": [{
-                "path": f"data:{content_type};base64,{base64_content}",
-                "title": f"image_{phone_number}",
-                "mimetype": content_type,
-                "size": len(media_content)
-            }]
-        }
-
-        logger.info(f"Creating record in NocoDB for {phone_number}")
-        response = requests.post(
-            create_url,
-            headers=headers,
-            json=data
-        )
-        response.raise_for_status()
-
-        # Get the URL from the response
-        record_data = response.json()
-        if record_data and 'profile_photo' in record_data and record_data['profile_photo']:
-            public_url = record_data['profile_photo'][0]['url']
-
-            # Update record with public URL
-            record_id = record_data['Id']
-            update_url = f"{base_url}/api/v2/tables/{table_id}/records/{record_id}"
-            update_data = {"public_url": public_url}
-
-            requests.patch(
-                update_url,
+            logger.info(f"Uploading file to NocoDB storage: {upload_url}")
+            upload_response = requests.post(
+                upload_url,
                 headers=headers,
-                json=update_data
+                files=files
             )
+            upload_response.raise_for_status()
 
-            logger.info(f"File uploaded to NocoDB: {public_url}")
-            return {"url": public_url}
+            file_data = upload_response.json()
+            logger.info(f"File upload response: {file_data}")
 
-        raise ValueError("No URL in NocoDB response")
+            if not file_data or 'url' not in file_data:
+                raise ValueError("No URL in upload response")
+
+            # Now create the record with the file URL
+            create_url = f"{base_url}/api/v2/tables/{table_id}/records"
+            record_data = {
+                "phone_number": phone_number,
+                "profile_photo": [{
+                    "url": file_data['url'],
+                    "title": f"image_{phone_number}",
+                    "mimetype": content_type,
+                    "size": len(media_content)
+                }]
+            }
+
+            logger.info(f"Creating record in NocoDB: {create_url}")
+            logger.info(f"Record data: {record_data}")
+
+            record_response = requests.post(
+                create_url,
+                headers={'xc-token': api_token, 'Content-Type': 'application/json'},
+                json=record_data
+            )
+            record_response.raise_for_status()
+
+            return {"url": file_data['url']}
+
+        finally:
+            # Clean up temporary file
+            os.unlink(temp_file_path)
 
     except Exception as e:
         logger.error(f"Error uploading file to NocoDB: {str(e)}")
