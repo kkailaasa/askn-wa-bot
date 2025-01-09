@@ -40,7 +40,7 @@ async def reply(request: Request):
     try:
         # Get form data
         form = await request.form()
-        
+
         # Log all incoming data for debugging
         logger.info("Received webhook data:")
         for key, value in form.items():
@@ -121,7 +121,7 @@ async def reply(request: Request):
             # Handle text-only messages
             elif body:
                 logger.info(f"Processing text message - From: {from_number}, Body: {body}")
-                
+
                 try:
                     process_question.delay(body, from_number)
                     logger.info(f"Task queued successfully for {from_number}")
