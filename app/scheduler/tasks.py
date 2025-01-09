@@ -30,49 +30,66 @@ def get_dify_base_url():
         base_url = f"{base_url}/v1"
     return base_url
 
-def upload_file_to_dify(media_content: bytes, content_type: str, user: str) -> Optional[Dict]:
-    """Upload a file to Dify's file storage"""
+def upload_file_to_nocodb(media_content: bytes, content_type: str, phone_number: str) -> Optional[Dict]:
+    """Upload a file to NocoDB and return the public URL"""
     try:
-        dify_key = config('DIFY_KEY')
-        base_url = get_dify_base_url()
-        upload_url = f"{base_url}/files/upload"
+        base_url = config('NOCODB_BASE_URL').rstrip('/')
+        api_token = config('NOCODB_API_TOKEN')
+        table_id = config('NOCODB_TABLE_ID')
 
-        # Create temporary file with proper extension
-        extension = {
-            'image/jpeg': '.jpg',
-            'image/png': '.png',
-            'image/gif': '.gif',
-            'image/webp': '.webp'
-        }.get(content_type, '.jpg')
+        # Upload to NocoDB
+        headers = {
+            'xc-token': api_token,
+            'Content-Type': 'application/json'
+        }
 
-        with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
-            temp_file.write(media_content)
-            temp_file_path = temp_file.name
+        # Convert the media content to base64 for temporary storage
+        import base64
+        base64_content = base64.b64encode(media_content).decode('utf-8')
 
-        try:
-            with open(temp_file_path, 'rb') as f:
-                files = {'file': (f'image{extension}', f, content_type)}
-                headers = {'Authorization': f'Bearer {dify_key}'}
-                data = {'user': user}
+        # Create the record with the base64 content
+        create_url = f"{base_url}/api/v2/tables/{table_id}/records"
 
-                logger.info(f"Uploading file to Dify: {upload_url}")
-                upload_response = requests.post(
-                    upload_url,
-                    headers=headers,
-                    files=files,
-                    data=data
-                )
-                upload_response.raise_for_status()
+        data = {
+            "phone_number": phone_number,
+            "profile_photo": [{
+                "data": f"data:{content_type};base64,{base64_content}",
+                "mimetype": content_type,
+                "title": f"image_{phone_number}"
+            }]
+        }
 
-                # Log response for debugging
-                logger.info(f"Dify upload response: {upload_response.text}")
-                return upload_response.json()
-        finally:
-            # Clean up temporary file
-            os.unlink(temp_file_path)
+        logger.info(f"Creating record in NocoDB for {phone_number}")
+        response = requests.post(
+            create_url,
+            headers=headers,
+            json=data
+        )
+        response.raise_for_status()
+
+        # Get the URL from the response
+        record_data = response.json()
+        if record_data and 'profile_photo' in record_data and record_data['profile_photo']:
+            public_url = record_data['profile_photo'][0]['url']
+
+            # Update record with public URL
+            record_id = record_data['Id']
+            update_url = f"{base_url}/api/v2/tables/{table_id}/records/{record_id}"
+            update_data = {"public_url": public_url}
+
+            requests.patch(
+                update_url,
+                headers=headers,
+                json=update_data
+            )
+
+            logger.info(f"File uploaded to NocoDB: {public_url}")
+            return {"url": public_url}
+
+        raise ValueError("No URL in NocoDB response")
 
     except Exception as e:
-        logger.error(f"Error uploading file to Dify: {str(e)}")
+        logger.error(f"Error uploading file to NocoDB: {str(e)}")
         if hasattr(e, 'response'):
             logger.error(f"Upload response content: {e.response.text}")
         return None
@@ -117,19 +134,19 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
             for item in media_items:
                 media_content = download_media_from_twilio(item['url'])
                 if media_content:
-                    file_info = upload_file_to_dify(
+                    file_info = upload_file_to_nocodb(
                         media_content,
                         item['content_type'],
                         dify_user
                     )
-                    if file_info:
-                        # Update structure to match Dify API requirements
+                    if file_info and 'url' in file_info:
+                        # Use the NocoDB public URL for Dify
                         uploaded_files.append({
                             'type': 'image',
-                            'transfer_method': 'local_file',
-                            'upload_file_id': file_info['id']  # Changed from 'id' to 'upload_file_id'
+                            'transfer_method': 'url',
+                            'url': file_info['url']
                         })
-                        logger.info(f"File uploaded to Dify: {file_info['id']}")
+                        logger.info(f"File uploaded to NocoDB with URL: {file_info['url']}")
 
         # Prepare message parameters
         message_params = {
