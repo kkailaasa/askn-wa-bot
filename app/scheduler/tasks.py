@@ -47,15 +47,16 @@ def upload_file_to_nocodb(media_content: bytes, content_type: str, phone_number:
         import base64
         base64_content = base64.b64encode(media_content).decode('utf-8')
 
-        # Create the record with the base64 content
+        # Create the record with path field
         create_url = f"{base_url}/api/v2/tables/{table_id}/records"
 
         data = {
             "phone_number": phone_number,
             "profile_photo": [{
-                "data": f"data:{content_type};base64,{base64_content}",
+                "path": f"data:{content_type};base64,{base64_content}",
+                "title": f"image_{phone_number}",
                 "mimetype": content_type,
-                "title": f"image_{phone_number}"
+                "size": len(media_content)
             }]
         }
 
