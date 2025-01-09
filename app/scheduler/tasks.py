@@ -31,7 +31,7 @@ def get_dify_base_url():
     return base_url
 
 def upload_file_to_nocodb(media_content: bytes, content_type: str, phone_number: str) -> Optional[Dict]:
-    """Upload a file to NocoDB and return the public URL"""
+    """Upload a file to NocoDB and return the signed URL"""
     try:
         base_url = config('NOCODB_BASE_URL').rstrip('/')
         api_token = config('NOCODB_API_TOKEN')
@@ -67,39 +67,17 @@ def upload_file_to_nocodb(media_content: bytes, content_type: str, phone_number:
             logger.info(f"File upload response: {file_data}")
 
             # Response comes as a list with one dict
-            if not file_data or not isinstance(file_data, list) or not file_data[0].get('signedUrl'):
+            if not file_data or not isinstance(file_data, list) or not file_data[0].get('url'):
                 raise ValueError("Invalid upload response format")
 
-            file_url = file_data[0]['signedUrl']
+            file_url = file_data[0]['url']
 
-            # Create public share link
-            share_url = f"{base_url}/api/v2/storage/shared"
-            share_data = {
-                "url": file_url,
-                "duration": 365  # Share for 1 year
-            }
-
-            share_response = requests.post(
-                share_url,
-                headers=headers,
-                json=share_data
-            )
-            share_response.raise_for_status()
-            share_result = share_response.json()
-
-            if not share_result.get('url'):
-                raise ValueError("No public URL in share response")
-
-            public_url = share_result['url']
-            logger.info(f"Created public share URL: {public_url}")
-
-            # Now create the record with both URLs
+            # Now create the record with the URL
             create_url = f"{base_url}/api/v2/tables/{table_id}/records"
             record_data = {
                 "phone_number": phone_number,
                 "profile_photo": [{
                     "url": file_url,
-                    "public_url": public_url,
                     "title": f"image_{phone_number}",
                     "mimetype": content_type,
                     "size": len(media_content)
@@ -107,16 +85,34 @@ def upload_file_to_nocodb(media_content: bytes, content_type: str, phone_number:
             }
 
             logger.info(f"Creating record in NocoDB: {create_url}")
-            logger.info(f"Record data: {record_data}")
-
             record_response = requests.post(
                 create_url,
                 headers={'xc-token': api_token, 'Content-Type': 'application/json'},
                 json=record_data
             )
             record_response.raise_for_status()
+            record_data = record_response.json()
 
-            return {"url": public_url}
+            # Get the record to obtain the signed URL
+            record_id = record_data.get('Id')
+            if not record_id:
+                raise ValueError("No record ID in response")
+
+            get_url = f"{base_url}/api/v2/tables/{table_id}/records/{record_id}"
+            get_response = requests.get(
+                get_url,
+                headers={'xc-token': api_token}
+            )
+            get_response.raise_for_status()
+            get_data = get_response.json()
+
+            if not get_data.get('profile_photo') or not get_data['profile_photo'][0].get('signedUrl'):
+                raise ValueError("No signed URL in record")
+
+            signed_url = get_data['profile_photo'][0]['signedUrl']
+            logger.info(f"Got signed URL: {signed_url}")
+
+            return {"url": signed_url}
 
         finally:
             # Clean up temporary file
