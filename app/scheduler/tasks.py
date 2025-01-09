@@ -155,7 +155,7 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
                         # Use the NocoDB public URL for Dify
                         uploaded_files.append({
                             'type': 'image',
-                            'transfer_method': 'url',
+                            'transfer_method': 'remote_url',
                             'url': file_info['url']
                         })
                         logger.info(f"File uploaded to NocoDB with URL: {file_info['url']}")
