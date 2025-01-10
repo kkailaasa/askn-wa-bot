@@ -8,8 +8,6 @@ from typing import Optional, List, Dict
 import tempfile
 import os
 from twilio.rest import Client
-import base64
-from io import BytesIO
 import re
 
 app = Celery('tasks', broker='redis://redis:6379/0', backend='redis://redis:6379/0')
@@ -32,25 +30,6 @@ def get_dify_base_url():
     if not base_url.endswith('/v1'):
         base_url = f"{base_url}/v1"
     return base_url
-
-def download_and_convert_to_base64(url: str) -> Optional[str]:
-    """Download an image from URL and convert it to base64.
-
-    Args:
-        url: The URL of the image
-
-    Returns:
-        Optional[str]: Base64 data URI if successful, None otherwise
-    """
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        image_data = BytesIO(response.content)
-        base64_image = base64.b64encode(image_data.getvalue()).decode()
-        return f"data:{response.headers['Content-Type']};base64,{base64_image}"
-    except Exception as e:
-        logger.error(f"Error downloading image from URL {url}: {str(e)}")
-        return None
 
 def upload_file_to_nocodb(media_content: bytes, content_type: str, phone_number: str) -> Optional[Dict]:
     """Upload a file to NocoDB and return the signed URL"""
@@ -199,7 +178,7 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
 
         # Prepare message parameters
         message_params = {
-            'query': Body or "User's Image",
+            'query': Body or "Please analyze this image",
             'user': dify_user,
             'inputs': {},
             'files': uploaded_files,
@@ -224,25 +203,20 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         if not result:
             raise ValueError("Empty response from Dify")
 
-        # Find URLs in the response
-        url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
+        # Find complete URLs in the response (including query parameters)
+        url_pattern = r'https?://[^\s<"]+'
         urls = re.findall(url_pattern, result)
 
-        # If URLs found, try to convert images to base64
         media_urls = []
         text_content = result
 
         for url in urls:
             # Check if URL is an image or Cloudflare storage URL
             if any(img_ext in url.lower() for img_ext in ['.png', '.jpg', '.jpeg', '.gif']) or 'cloudflarestorage.com' in url:
-                base64_image = download_and_convert_to_base64(url)
-                if base64_image:
-                    media_urls.append(base64_image)
-                    # Remove the URL from text content
-                    text_content = text_content.replace(url, '').strip()
-                    logger.info(f"Successfully converted image URL to base64")
-                else:
-                    logger.error(f"Failed to convert image URL to base64: {url}")
+                # First try: send the complete signed URL
+                media_urls.append(url)
+                text_content = text_content.replace(url, '').strip()
+                logger.info(f"Added URL to media_urls: {url}")
 
         # Clean up text content
         text_content = ' '.join(text_content.split())
