@@ -210,8 +210,27 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         if not result:
             raise ValueError("Empty response from Dify")
 
-        # Send response back to user
-        send_message(From, result)
+        # URL pattern matching
+        import re
+        url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
+
+        # Find all URLs in the response
+        urls = re.findall(url_pattern, result)
+
+        # Remove URLs from the text content
+        text_content = result
+        for url in urls:
+            text_content = text_content.replace(url, '').strip()
+
+        # Clean up any double spaces or line breaks
+        text_content = ' '.join(text_content.split())
+
+        # Send message with media if URLs were found, otherwise just text
+        if urls:
+            send_message(From, text_content, urls)
+        else:
+            send_message(From, result)
+
         log_message(From, Body, result, "success")
 
     except Exception as e:
