@@ -183,7 +183,13 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
             'query': Body or "Please analyze this image",
             'user': dify_user,
             'inputs': {},
-            'files': uploaded_files,
+            'files': [
+                {
+                    'type': 'image',
+                    'transfer_method': 'remote_url',  # Changed from 'url'
+                    'url': file_info['url']
+                }
+            ] if file_info else [],
             'response_mode': "blocking",
             'conversation_id': conversation_id if conversation_id else None
         }
