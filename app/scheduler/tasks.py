@@ -203,10 +203,24 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
                         })
                         logger.info(f"File uploaded to NocoDB with URL: {file_info['url']}")
 
-        # Prepare message parameters
-        # Modify query to include dify_user
-        modified_query = f"User {dify_user}: {Body}" if Body else f"User {dify_user}: Please analyze this image"
+        # Construct query with user, message body, and image URLs if present
+        query_parts = [f"User {dify_user}:"]
 
+        if Body:
+            query_parts.append(Body)
+
+        if uploaded_files:
+            # Add signed URLs from uploaded files
+            url_parts = []
+            for file_info in uploaded_files:
+                if file_info.get('url'):
+                    url_parts.append(f"Image URL: {file_info['url']}")
+            if url_parts:
+                query_parts.append(" ".join(url_parts))
+
+        modified_query = " ".join(query_parts)
+
+        # Prepare message parameters
         message_params = {
             'query': modified_query,
             'user': dify_user,
