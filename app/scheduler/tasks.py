@@ -9,6 +9,7 @@ import tempfile
 import os
 from twilio.rest import Client
 import re
+import json
 
 app = Celery('tasks', broker='redis://redis:6379/0', backend='redis://redis:6379/0')
 app.conf.update(
@@ -23,6 +24,32 @@ app.conf.update(
 account_sid = config('TWILIO_ACCOUNT_SID')
 auth_token = config('TWILIO_AUTH_TOKEN')
 twilio_client = Client(account_sid, auth_token)
+
+def process_dify_response(response_text: str) -> Optional[str]:
+    """Process Dify response to extract final agent_thought content"""
+    try:
+        # Split the response into individual SSE events
+        events = response_text.strip().split('\n\n')
+        agent_thought = None
+
+        for event in events:
+            if not event.startswith('data: '):
+                continue
+
+            try:
+                data = json.loads(event[6:])  # Remove 'data: ' prefix
+                if data.get('event') == 'agent_thought':
+                    # Extract the thought content
+                    thought_content = data.get('thought')
+                    if thought_content:
+                        agent_thought = thought_content
+            except json.JSONDecodeError:
+                continue
+
+        return agent_thought
+    except Exception as e:
+        logger.error(f"Error processing Dify response: {str(e)}")
+        return None
 
 def get_dify_base_url():
     """Get base URL without trailing slash"""
@@ -182,7 +209,7 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
             'user': dify_user,
             'inputs': {},
             'files': uploaded_files,
-            'response_mode': "blocking",
+            'response_mode': "streaming",  # Changed to streaming to get agent_thought
             'conversation_id': conversation_id if conversation_id else None
         }
 
@@ -192,16 +219,23 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         chat_response = requests.post(
             chat_url,
             headers={'Authorization': f'Bearer {dify_key}'},
-            json=message_params
+            json=message_params,
+            stream=True  # Enable streaming
         )
         chat_response.raise_for_status()
 
-        logger.info(f"Chat response: {chat_response.text}")
+        # Accumulate streaming response
+        full_response = ''
+        for line in chat_response.iter_lines():
+            if line:
+                decoded_line = line.decode('utf-8')
+                full_response += decoded_line + '\n\n'
 
-        result = chat_response.json().get("answer")
+        logger.info("Processing full response")
+        result = process_dify_response(full_response)
 
         if not result:
-            raise ValueError("Empty response from Dify")
+            raise ValueError("No valid thought content found in Dify response")
 
         # Find complete URLs in the response (including query parameters)
         url_pattern = r'https?://[^\s<"]+'
@@ -213,7 +247,6 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         for url in urls:
             # Check if URL is an image or Cloudflare storage URL
             if any(img_ext in url.lower() for img_ext in ['.png', '.jpg', '.jpeg', '.gif']) or 'cloudflarestorage.com' in url:
-                # First try: send the complete signed URL
                 media_urls.append(url)
                 text_content = text_content.replace(url, '').strip()
                 logger.info(f"Added URL to media_urls: {url}")
