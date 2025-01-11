@@ -204,8 +204,11 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
                         logger.info(f"File uploaded to NocoDB with URL: {file_info['url']}")
 
         # Prepare message parameters
+        # Modify query to include dify_user
+        modified_query = f"User {dify_user}: {Body}" if Body else f"User {dify_user}: Please analyze this image"
+
         message_params = {
-            'query': Body or "Please analyze this image",
+            'query': modified_query,
             'user': dify_user,
             'inputs': {},
             'files': uploaded_files,
