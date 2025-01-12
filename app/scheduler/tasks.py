@@ -41,9 +41,11 @@ def process_dify_response(response_text: str) -> Optional[dict]:
 
     Returns:
         dict containing:
-            - text: The main message content
+            - text: The main message content (from message or thought)
             - urls: List of image/media URLs
             - error: Any error message (if present)
+
+    Handles both standard message events and agent_thought events.
     """
     try:
         # Split the response into individual SSE events
@@ -62,10 +64,22 @@ def process_dify_response(response_text: str) -> Optional[dict]:
                 data = json.loads(event[6:])  # Remove 'data: ' prefix
 
                 # Extract regular message content
-                if data.get('event') == 'message':
+                if data.get('event') == 'message' or data.get('event') == 'agent_message':
                     answer = data.get('answer', '')
                     if answer:
-                        result['text'] = answer
+                        # Append to existing text if we're getting streamed tokens
+                        if result['text']:
+                            result['text'] += answer
+                        else:
+                            result['text'] = answer
+
+                # Extract thought content (which may contain the final response)
+                elif data.get('event') == 'agent_thought':
+                    thought = data.get('thought', '')
+                    if thought:
+                        # Replace existing text if this is a thought
+                        # as thoughts typically contain the complete response
+                        result['text'] = thought
 
                 # Extract node output that might contain image URLs
                 elif data.get('event') == 'node_finished':
