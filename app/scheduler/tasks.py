@@ -2,7 +2,14 @@
 from celery import Celery
 from dify_client import ChatClient
 from decouple import config
-from app.tasks.utils import send_message, logger, is_rate_limited, log_message, download_media_from_twilio
+from app.tasks.utils import (
+    send_message, 
+    logger, 
+    is_rate_limited, 
+    log_message, 
+    download_media_from_twilio,
+    download_image_as_base64
+)
 import requests
 from typing import Optional, List, Dict
 import tempfile

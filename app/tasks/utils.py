@@ -2,6 +2,7 @@
 import logging
 import redis
 import requests
+import base64
 from twilio.rest import Client
 from decouple import config
 from app.db.models import MessageLog
@@ -173,7 +174,6 @@ def download_image_as_base64(url: str) -> Optional[str]:
         response.raise_for_status()
 
         # Convert to base64
-        import base64
         image_base64 = base64.b64encode(response.content).decode('utf-8')
 
         # Get file extension from URL
