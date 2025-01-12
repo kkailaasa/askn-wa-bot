@@ -90,8 +90,6 @@ def process_dify_response(response_text: str) -> Optional[dict]:
             - text: The main message content (from message or thought)
             - urls: List of image/media URLs
             - error: Any error message (if present)
-
-    Handles both standard message events and agent_thought events.
     """
     try:
         # Split the response into individual SSE events
@@ -156,22 +154,42 @@ def process_dify_response(response_text: str) -> Optional[dict]:
                     if outputs.get('answer'):
                         result['text'] = outputs['answer']
 
-                # Find URLs in text content and move them to urls list
-                if result['text']:
-                    url_pattern = r'https?://[^\s<"]+'
-                    urls = re.findall(url_pattern, result['text'])
-
-                    for url in urls:
-                        # Check if URL is an image or Cloudflare storage URL
-                        if (any(img_ext in url.lower() for img_ext in ['.png', '.jpg', '.jpeg', '.gif']) or
-                            'cloudflarestorage.com' in url):
-                            if url not in result['urls']:
-                                result['urls'].append(url)
-                            # Remove the URL from the text
-                            result['text'] = result['text'].replace(url, '').strip()
-
             except json.JSONDecodeError:
                 continue
+
+        # Process URLs in the final text content
+        if result['text']:
+            # First, find URLs in markdown-style links [text](url)
+            markdown_pattern = r'\[([^\]]+)\]\((https?://[^)]+)\)'
+            markdown_urls = re.findall(markdown_pattern, result['text'])
+
+            # Extract URLs from markdown links
+            for text, url in markdown_urls:
+                if (any(img_ext in url.lower() for img_ext in ['.png', '.jpg', '.jpeg', '.gif']) or
+                    'cloudflarestorage.com' in url):
+                    if url not in result['urls']:
+                        result['urls'].append(url)
+                    # Replace the entire markdown link with just the text
+                    result['text'] = result['text'].replace(f'[{text}]({url})', text)
+
+            # Then find any remaining plain URLs, excluding trailing punctuation
+            url_pattern = r'https?://[^\s<"]+?(?=[.!?,;]?\s|$)'
+            plain_urls = re.findall(url_pattern, result['text'])
+
+            for url in plain_urls:
+                # Check if URL is an image or Cloudflare storage URL
+                if (any(img_ext in url.lower() for img_ext in ['.png', '.jpg', '.jpeg', '.gif']) or
+                    'cloudflarestorage.com' in url):
+                    if url not in result['urls']:
+                        result['urls'].append(url)
+                    # Remove the URL from the text, being careful with punctuation
+                    # First try to find and remove "url." pattern
+                    if url + '.' in result['text']:
+                        result['text'] = result['text'].replace(url + '.', '')
+                    # Then try removing just the url if the first replacement didn't work
+                    else:
+                        result['text'] = result['text'].replace(url, '')
+                    result['text'] = result['text'].strip()
 
         # Clean up text content
         result['text'] = ' '.join(result['text'].split())
