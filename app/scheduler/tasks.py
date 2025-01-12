@@ -32,42 +32,19 @@ account_sid = config('TWILIO_ACCOUNT_SID')
 auth_token = config('TWILIO_AUTH_TOKEN')
 twilio_client = Client(account_sid, auth_token)
 
-def process_dify_response(response_text: str) -> Optional[str]:
-    """Process Dify response to extract content with URLs intact"""
-    try:
-        # Split the response into individual SSE events
-        events = response_text.strip().split('\n\n')
-        final_text = None
+def process_dify_response(response_text: str) -> Optional[dict]:
+    """
+    Process Dify response to extract message content and other relevant data
 
-        for event in events:
-            if not event.startswith('data: '):
-                continue
+    Args:
+        response_text: Raw SSE response text from Dify
 
-            try:
-                data = json.loads(event[6:])  # Remove 'data: ' prefix
-
-                # Get message content
-                if data.get('event') == 'message':
-                    answer = data.get('answer', '')
-                    if answer:
-                        final_text = answer
-
-                # Get workflow final output if present
-                elif data.get('event') == 'workflow_finished':
-                    workflow_data = data.get('data', {})
-                    outputs = workflow_data.get('outputs', {})
-                    if outputs.get('answer'):
-                        final_text = outputs['answer']
-
-            except json.JSONDecodeError:
-                continue
-
-        return final_text
-
-    except Exception as e:
-        logger.error(f"Error processing Dify response: {str(e)}")
-        return Nonedef process_dify_response(response_text: str) -> Optional[dict]:
-    """Process Dify response to extract message content and other relevant data"""
+    Returns:
+        dict containing:
+            - text: The main message content
+            - urls: List of image/media URLs
+            - error: Any error message (if present)
+    """
     try:
         # Split the response into individual SSE events
         events = response_text.strip().split('\n\n')
@@ -95,7 +72,7 @@ def process_dify_response(response_text: str) -> Optional[str]:
                     node_data = data.get('data', {})
                     outputs = node_data.get('outputs', {})
 
-                    # If there's an error in outputs, capture it
+                    # Check for errors in outputs
                     if outputs.get('status_code') == 400:
                         error_body = outputs.get('body', '')
                         if error_body:
@@ -105,7 +82,7 @@ def process_dify_response(response_text: str) -> Optional[str]:
                             except json.JSONDecodeError:
                                 result['error'] = error_body
 
-                    # Check for files in outputs
+                    # Check for files/media in outputs
                     files = outputs.get('files', [])
                     if files and isinstance(files, list):
                         for file in files:
@@ -119,10 +96,27 @@ def process_dify_response(response_text: str) -> Optional[str]:
                     if outputs.get('answer'):
                         result['text'] = outputs['answer']
 
+                # Find URLs in text content and move them to urls list
+                if result['text']:
+                    url_pattern = r'https?://[^\s<"]+'
+                    urls = re.findall(url_pattern, result['text'])
+
+                    for url in urls:
+                        # Check if URL is an image or Cloudflare storage URL
+                        if (any(img_ext in url.lower() for img_ext in ['.png', '.jpg', '.jpeg', '.gif']) or
+                            'cloudflarestorage.com' in url):
+                            if url not in result['urls']:
+                                result['urls'].append(url)
+                            # Remove the URL from the text
+                            result['text'] = result['text'].replace(url, '').strip()
+
             except json.JSONDecodeError:
                 continue
 
+        # Clean up text content
+        result['text'] = ' '.join(result['text'].split())
         return result
+
     except Exception as e:
         logger.error(f"Error processing Dify response: {str(e)}")
         return None
@@ -279,20 +273,14 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
                         })
                         logger.info(f"File uploaded to NocoDB with URL: {file_info['url']}")
 
-        # Construct query with user, message body, and image URLs if present
+        # Construct query
         query_parts = [f"User {dify_user}:"]
-
         if Body:
             query_parts.append(Body)
-
         if uploaded_files:
-            # Add signed URLs from uploaded files
-            url_parts = []
             for file_info in uploaded_files:
                 if file_info.get('url'):
-                    url_parts.append(f"Image URL: {file_info['url']}")
-            if url_parts:
-                query_parts.append(" ".join(url_parts))
+                    query_parts.append(f"Image URL: {file_info['url']}")
 
         modified_query = " ".join(query_parts)
 
@@ -309,6 +297,7 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         logger.info(f"Sending chat message to: {chat_url}")
         logger.info(f"Message params: {message_params}")
 
+        # Make request to Dify
         chat_response = requests.post(
             chat_url,
             headers={'Authorization': f'Bearer {dify_key}'},
@@ -330,32 +319,18 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         if not result:
             raise ValueError("No valid response content found in Dify response")
 
-        # Find complete URLs in the response (including query parameters)
-        url_pattern = r'https?://[^\s<"]+'
-        urls = re.findall(url_pattern, result)
+        if result.get('error'):
+            raise ValueError(f"Error in Dify response: {result['error']}")
 
-        media_urls = []
-        text_content = result
-
-        for url in urls:
-            # Check if URL is an image or Cloudflare storage URL
-            if any(img_ext in url.lower() for img_ext in ['.png', '.jpg', '.jpeg', '.gif']) or 'cloudflarestorage.com' in url:
-                media_urls.append(url)
-                text_content = text_content.replace(url, '').strip()
-                logger.info(f"Added URL to media_urls: {url}")
-
-        # Clean up text content
-        text_content = ' '.join(text_content.split())
-
-        # Send message with media if available, otherwise just text
-        if media_urls:
-            logger.info(f"Sending message with {len(media_urls)} media attachments")
-            send_message(From, text_content, media_urls)
+        # Send message with media URLs if available
+        if result['urls']:
+            logger.info(f"Sending message with {len(result['urls'])} media attachments")
+            send_message(From, result['text'], result['urls'])
         else:
             logger.info("Sending text-only message")
-            send_message(From, text_content)
+            send_message(From, result['text'])
 
-        log_message(From, Body, result, "success")
+        log_message(From, Body, result['text'], "success")
 
     except Exception as e:
         logger.error(f"Error processing message: {str(e)}")
