@@ -2,18 +2,12 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from typing import Optional
 from app.scheduler.tasks import process_question
 from app.db.database import init_db
+from app.utils.logging_config import setup_logging
 import logging
 from datetime import datetime
 
-# Configure logging with timestamp
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('app_data/app.log'),
-        logging.StreamHandler()
-    ]
-)
+# Setup logging first thing
+setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="WhatsApp Bot API")
@@ -21,14 +15,20 @@ app = FastAPI(title="WhatsApp Bot API")
 @app.on_event("startup")
 async def startup_event():
     try:
+        # Initialize database
         init_db()
         logger.info("Database initialized successfully")
+
+        # Log startup configuration
+        logger.info("Application starting up")
+        logger.debug("Debug logging is enabled")  # Only shows in development
     except Exception as e:
-        logger.error(f"Failed to initialize database: {str(e)}")
+        logger.critical(f"Failed to initialize application: {str(e)}")
         raise
 
 @app.get("/")
 async def root():
+    logger.debug("Root endpoint accessed")  # Only shows in development
     return {
         "status": "running",
         "timestamp": datetime.utcnow().isoformat(),
@@ -42,9 +42,9 @@ async def reply(request: Request):
         form = await request.form()
 
         # Log all incoming data for debugging
-        logger.info("Received webhook data:")
+        logger.debug("Received webhook data:")  # Detailed logging in development
         for key, value in form.items():
-            logger.info(f"{key}: {value}")
+            logger.debug(f"{key}: {value}")
 
         # Extract fields with defaults
         message_sid = form.get('MessageSid', '')
@@ -59,7 +59,7 @@ async def reply(request: Request):
         # Log basic request info
         logger.info(f"Received webhook - MessageSid: {message_sid}, From: {from_number}, To: {to_number}")
 
-        # Handle status updates - only for specific status types
+        # Handle status updates
         if message_status in ['sent', 'delivered', 'read', 'failed'] or sms_status in ['sent', 'delivered', 'read', 'failed']:
             status = message_status or sms_status
             logger.info(f"Status update received: {status}")
@@ -90,7 +90,6 @@ async def reply(request: Request):
                 num_media_int = int(num_media)
                 logger.info(f"Media message received - Count: {num_media_int}")
 
-                # Collect all media URLs and types
                 for i in range(num_media_int):
                     url = form.get(f'MediaUrl{i}')
                     content_type = form.get(f'MediaContentType{i}')
@@ -101,7 +100,7 @@ async def reply(request: Request):
                             "content_type": content_type,
                             "index": i
                         })
-                        logger.info(f"Media {i}: Type: {content_type}, URL: {url}")
+                        logger.debug(f"Media {i}: Type: {content_type}, URL: {url}")  # Detailed in development
 
                 message_text = body if body else "Image message"
                 try:
@@ -145,7 +144,7 @@ async def reply(request: Request):
         }
 
     except Exception as e:
-        logger.error(f"Unexpected error processing webhook: {str(e)}")
+        logger.error(f"Unexpected error processing webhook: {str(e)}", exc_info=True)  # Full traceback in development
         raise HTTPException(
             status_code=500,
             detail="Internal server error"
@@ -153,6 +152,7 @@ async def reply(request: Request):
 
 @app.get("/health")
 async def health_check():
+    logger.debug("Health check endpoint accessed")  # Only shows in development
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat()
@@ -160,4 +160,5 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("Starting application via __main__")
     uvicorn.run(app, host="0.0.0.0", port=8000)
