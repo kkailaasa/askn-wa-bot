@@ -264,9 +264,12 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         for url in urls:
             # Check if URL is an image or Cloudflare storage URL
             if any(img_ext in url.lower() for img_ext in ['.png', '.jpg', '.jpeg', '.gif']) or 'cloudflarestorage.com' in url:
-                media_urls.append(url)
-                text_content = text_content.replace(url, '').strip()
-                logger.info(f"Added URL to media_urls: {url}")
+                # Convert to base64
+                base64_url = download_image_as_base64(url)
+                if base64_url:
+                    media_urls.append(base64_url)
+                    text_content = text_content.replace(url, '').strip()
+                    logger.info(f"Converted image URL to base64")
 
         # Clean up text content
         text_content = ' '.join(text_content.split())

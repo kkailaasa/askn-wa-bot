@@ -165,3 +165,27 @@ def download_media_from_twilio(media_url: str) -> Optional[bytes]:
     except Exception as e:
         logger.error(f"Error downloading media from Twilio: {str(e)}")
         return None
+
+def download_image_as_base64(url: str) -> Optional[str]:
+    """Download image from URL and convert to base64 string"""
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+
+        # Convert to base64
+        import base64
+        image_base64 = base64.b64encode(response.content).decode('utf-8')
+
+        # Get file extension from URL
+        extension = url.split('.')[-1].split('?')[0].lower()
+        if extension in ['jpg', 'jpeg']:
+            mime_type = 'image/jpeg'
+        elif extension == 'png':
+            mime_type = 'image/png'
+        else:
+            mime_type = 'image/jpeg'  # default to jpeg
+
+        return f"data:{mime_type};base64,{image_base64}"
+    except Exception as e:
+        logger.error(f"Error converting image to base64: {str(e)}")
+        return None
