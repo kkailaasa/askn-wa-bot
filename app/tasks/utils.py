@@ -50,14 +50,6 @@ def send_message(
 ) -> Optional[str]:
     """
     Send a WhatsApp message with optional media
-
-    Args:
-        to_number: Destination phone number
-        body_text: Optional text message
-        media_url: Optional media URL or list of URLs
-
-    Returns:
-        Message SID if successful, None otherwise
     """
     try:
         # Validate at least one of body or media is present
@@ -82,11 +74,32 @@ def send_message(
         if body_text and body_text.strip():
             message_params['body'] = body_text
 
-        # Add media if present
+        # Add media if present, properly handling URL encoding
         if media_url:
             if isinstance(media_url, str):
                 media_url = [media_url]
-            message_params['media_url'] = media_url
+
+            # Try to pre-validate and encode URLs
+            valid_urls = []
+            for url in media_url:
+                try:
+                    # First try to download or at least validate the URL
+                    response = requests.head(url, allow_redirects=True, timeout=5)
+                    response.raise_for_status()
+                    final_url = response.url  # Get the final URL after any redirects
+                    valid_urls.append(final_url)
+                    logger.info(f"Successfully validated media URL: {final_url}")
+                except Exception as e:
+                    logger.error(f"Failed to validate media URL {url}: {str(e)}")
+                    # If URL validation fails, try sending message without media
+                    continue
+
+            if valid_urls:
+                message_params['media_url'] = valid_urls
+            elif body_text:  # If no valid URLs but we have text, send text-only message
+                logger.warning("No valid media URLs found, sending text-only message")
+            else:
+                raise ValueError("No valid media URLs and no message text")
 
         # Send message
         message = client.messages.create(**message_params)
@@ -94,7 +107,7 @@ def send_message(
         logger.info(f"Message sent to {to_number} - SID: {message.sid}")
         log_message(
             to_number,
-            f"Body: {body_text}, Media: {media_url}",
+            f"Body: {body_text}, Media: {valid_urls if media_url else None}",
             f"Message SID: {message.sid}",
             "success"
         )
@@ -102,6 +115,20 @@ def send_message(
 
     except Exception as e:
         logger.error(f"Error sending message to {to_number}: {e}")
+        # Attempt to send text-only message if media fails
+        if body_text and media_url:
+            logger.info("Attempting to send text-only message after media failure")
+            try:
+                message = client.messages.create(
+                    from_=f"whatsapp:{twilio_number.strip()}",
+                    to=to_number,
+                    body=body_text
+                )
+                log_message(to_number, body_text, f"Fallback message SID: {message.sid}", "success")
+                return message.sid
+            except Exception as fallback_error:
+                logger.error(f"Fallback message also failed: {fallback_error}")
+
         log_message(to_number, body_text or "", str(e), "error")
         raise e
 
