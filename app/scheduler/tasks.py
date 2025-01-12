@@ -32,6 +32,51 @@ account_sid = config('TWILIO_ACCOUNT_SID')
 auth_token = config('TWILIO_AUTH_TOKEN')
 twilio_client = Client(account_sid, auth_token)
 
+def get_active_conversation(base_url: str, dify_key: str, dify_user: str) -> Optional[str]:
+    """
+    Get the conversation ID if there's an active conversation less than 1 hour old
+
+    Args:
+        base_url: Dify API base URL
+        dify_key: Dify API key
+        dify_user: User identifier
+
+    Returns:
+        str: Conversation ID if found and active, None otherwise
+    """
+    try:
+        # Get most recent conversation
+        conversations_response = requests.get(
+            f"{base_url}/conversations",
+            headers={'Authorization': f'Bearer {dify_key}'},
+            params={
+                'user': dify_user,
+                'limit': 1,  # We only need the most recent one
+                'sort_by': '-updated_at'  # Most recent first
+            }
+        )
+        conversations_response.raise_for_status()
+        conversations_data = conversations_response.json()
+
+        if not conversations_data.get("data"):
+            return None
+
+        latest_conversation = conversations_data["data"][0]
+        updated_at = latest_conversation.get("updated_at", 0)
+
+        # Check if conversation is less than 1 hour old
+        current_time = int(time.time())
+        one_hour = 3600  # seconds
+
+        if (current_time - updated_at) < one_hour:
+            return latest_conversation.get("id")
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Error getting conversation: {str(e)}")
+        return None
+
 def process_dify_response(response_text: str) -> Optional[dict]:
     """
     Process Dify response to extract message content and other relevant data
@@ -266,21 +311,12 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         # Format user identifier
         dify_user = From if From.startswith("whatsapp:") else f"whatsapp:{From.strip()}"
 
-        # Get existing conversation
-        conversation_id = None
-        logger.info(f"Getting conversations from: {base_url}/conversations")
-        conversations_response = requests.get(
-            f"{base_url}/conversations",
-            headers={'Authorization': f'Bearer {dify_key}'},
-            params={'user': dify_user}
-        )
-        conversations_response.raise_for_status()
-        conversations_data = conversations_response.json()
-
-        if "data" in conversations_data:
-            conversation_list = conversations_data.get("data")
-            if conversation_list:
-                conversation_id = conversation_list[0].get("id")
+        # Get active conversation if exists
+        conversation_id = get_active_conversation(base_url, dify_key, dify_user)
+        if conversation_id:
+            logger.info(f"Using existing conversation: {conversation_id}")
+        else:
+            logger.info("Creating new conversation")
 
         # Process media if present
         uploaded_files = []
@@ -319,7 +355,7 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
             'inputs': {},
             'files': uploaded_files,
             'response_mode': "streaming",
-            'conversation_id': conversation_id if conversation_id else None
+            'conversation_id': conversation_id
         }
 
         logger.info(f"Sending chat message to: {chat_url}")
