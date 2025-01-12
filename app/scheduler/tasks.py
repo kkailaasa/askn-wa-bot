@@ -32,7 +32,41 @@ account_sid = config('TWILIO_ACCOUNT_SID')
 auth_token = config('TWILIO_AUTH_TOKEN')
 twilio_client = Client(account_sid, auth_token)
 
-def process_dify_response(response_text: str) -> Optional[dict]:
+def process_dify_response(response_text: str) -> Optional[str]:
+    """Process Dify response to extract content with URLs intact"""
+    try:
+        # Split the response into individual SSE events
+        events = response_text.strip().split('\n\n')
+        final_text = None
+
+        for event in events:
+            if not event.startswith('data: '):
+                continue
+
+            try:
+                data = json.loads(event[6:])  # Remove 'data: ' prefix
+
+                # Get message content
+                if data.get('event') == 'message':
+                    answer = data.get('answer', '')
+                    if answer:
+                        final_text = answer
+
+                # Get workflow final output if present
+                elif data.get('event') == 'workflow_finished':
+                    workflow_data = data.get('data', {})
+                    outputs = workflow_data.get('outputs', {})
+                    if outputs.get('answer'):
+                        final_text = outputs['answer']
+
+            except json.JSONDecodeError:
+                continue
+
+        return final_text
+
+    except Exception as e:
+        logger.error(f"Error processing Dify response: {str(e)}")
+        return Nonedef process_dify_response(response_text: str) -> Optional[dict]:
     """Process Dify response to extract message content and other relevant data"""
     try:
         # Split the response into individual SSE events
@@ -268,7 +302,7 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
             'user': dify_user,
             'inputs': {},
             'files': uploaded_files,
-            'response_mode': "streaming",  # Changed to streaming to get agent_thought
+            'response_mode': "streaming",
             'conversation_id': conversation_id if conversation_id else None
         }
 
@@ -279,7 +313,7 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
             chat_url,
             headers={'Authorization': f'Bearer {dify_key}'},
             json=message_params,
-            stream=True  # Enable streaming
+            stream=True
         )
         chat_response.raise_for_status()
 
@@ -296,14 +330,22 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         if not result:
             raise ValueError("No valid response content found in Dify response")
 
-        # Check for errors
-        if result.get('error'):
-            logger.error(f"Dify processing error: {result['error']}")
-            send_message(From, f"Sorry, I encountered an error: {result['error']}")
-            return
+        # Find complete URLs in the response (including query parameters)
+        url_pattern = r'https?://[^\s<"]+'
+        urls = re.findall(url_pattern, result)
 
-        text_content = result.get('text', '').strip()
-        media_urls = result.get('urls', [])
+        media_urls = []
+        text_content = result
+
+        for url in urls:
+            # Check if URL is an image or Cloudflare storage URL
+            if any(img_ext in url.lower() for img_ext in ['.png', '.jpg', '.jpeg', '.gif']) or 'cloudflarestorage.com' in url:
+                media_urls.append(url)
+                text_content = text_content.replace(url, '').strip()
+                logger.info(f"Added URL to media_urls: {url}")
+
+        # Clean up text content
+        text_content = ' '.join(text_content.split())
 
         # Send message with media if available, otherwise just text
         if media_urls:
@@ -312,14 +354,6 @@ def process_question(Body: str, From: str, media_items: Optional[List[Dict]] = N
         else:
             logger.info("Sending text-only message")
             send_message(From, text_content)
-
-        # Send message with media if available, otherwise just text
-        if media_urls:
-            logger.info(f"Sending message with {len(media_urls)} media attachments")
-            send_message(From, text_content, media_urls)
-        else:
-            logger.info("Sending text-only message")
-            send_message(From, result)
 
         log_message(From, Body, result, "success")
 
