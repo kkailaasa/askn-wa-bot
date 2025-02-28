@@ -1,3 +1,4 @@
+import openai
 import time
 import requests
 from typing import Optional
@@ -63,6 +64,7 @@ def process_question(Body: str, From: str):
 
         if is_rate_limited(From):
             logger.info(f"rate limit exceed for ${From}")
+            send_message(From, "You have reached your message limit. Please try again later.")
             return
 
         chat_client.base_url = "http://brightpath.koogle.sk/v1"
@@ -99,4 +101,4 @@ def process_question(Body: str, From: str):
             # Send message back to the sender's number
             send_message(From, result)
     except Exception as e:
-        logger.error(f"Error sending message to {From}: {str(e)}")
+        logger.error(f"Error sending message to {From}: {str(e)}")s
