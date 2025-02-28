@@ -1,4 +1,3 @@
-import openai
 import time
 import requests
 from typing import Optional
