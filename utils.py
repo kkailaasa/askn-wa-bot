@@ -34,8 +34,8 @@ def send_message(to_number, body_text):
 
 redis_client = redis.StrictRedis(host='redis', port=6379)
 
-RATE_LIMIT = 2 # NO OF MESSAGES PER NUMBER 
-TIME_WINDOW = 60 # IN SECONDS
+RATE_LIMIT = 9 # NO OF MESSAGES PER NUMBER
+TIME_WINDOW = 3600 # IN SECONDS
 
 def is_rate_limited(phone_number):
     key = f"rate_limit:{phone_number}"
