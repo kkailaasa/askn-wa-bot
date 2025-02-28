@@ -101,4 +101,4 @@ def process_question(Body: str, From: str):
             # Send message back to the sender's number
             send_message(From, result)
     except Exception as e:
-        logger.error(f"Error sending message to {From}: {str(e)}")s
+        logger.error(f"Error sending message to {From}: {str(e)}")
