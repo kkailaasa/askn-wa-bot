@@ -29,6 +29,38 @@ def send_message(to_number, body_text):
         logger.error(f"Error sending message to {to_number}: {e}")
         raise e  # Reraise the exception to be handled by the calling function
 
+def send_media_message(to_number, media_path, caption=None):
+    """
+    Send a media message (image) via Twilio WhatsApp.
+
+    Args:
+        to_number (str): The recipient's phone number
+        media_path (str): Path to the media file
+        caption (str, optional): Optional caption to include with the media
+    """
+    try:
+        # Ensure the to_number is properly formatted for WhatsApp
+        if not to_number.startswith("whatsapp:"):
+            to_number = f"whatsapp:{to_number}"
+
+        # Prepare message parameters
+        message_params = {
+            'from_': f"whatsapp:{twilio_number}",
+            'media_url': [media_path],
+            'to': to_number
+        }
+
+        # Add caption if provided
+        if caption:
+            message_params['body'] = caption
+
+        # Send the message
+        message = client.messages.create(**message_params)
+        logger.info(f"Media message sent to {to_number} with media {media_path}")
+    except Exception as e:
+        logger.error(f"Error sending media message to {to_number}: {e}")
+        raise e  # Reraise the exception to be handled by the calling function
+
 
 # redis rate limiting
 
@@ -52,5 +84,3 @@ def is_rate_limited(phone_number):
     else:
         # rate exceeded
         return True
-
-
