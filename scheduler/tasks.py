@@ -54,10 +54,10 @@ def get_active_conversation(chat_client: ChatClient, From: str) -> Optional[str]
 def extract_image_urls(text: str) -> List[str]:
     """
     Extract image URLs from text that appear to be JPEG/JPG images.
-    
+
     Args:
         text: Text that might contain image URLs
-        
+
     Returns:
         List of image URLs found
     """
@@ -68,25 +68,25 @@ def extract_image_urls(text: str) -> List[str]:
 def process_and_send_response(From: str, response_text: str):
     """
     Process the response text, extract any images, and send them appropriately.
-    
+
     Args:
         From: Recipient's phone number
         response_text: Text response from Dify
     """
     # Extract image URLs from the response
     image_urls = extract_image_urls(response_text)
-    
+
     if not image_urls:
         # No images found, just send the text
         send_message(From, response_text)
         return
-    
+
     # If only one image is found, send it with the text as caption
     if len(image_urls) == 1:
         image_url = image_urls[0]
         # Clean the text to remove the image URL
         cleaned_text = response_text.replace(image_url, "").strip()
-        
+
         try:
             # Send the image with caption
             send_media_message(From, image_url, cleaned_text if cleaned_text else None)
@@ -103,11 +103,11 @@ def process_and_send_response(From: str, response_text: str):
         cleaned_text = response_text
         for url in image_urls:
             cleaned_text = cleaned_text.replace(url, "").strip()
-        
+
         try:
             # Send first image with cleaned text
             send_media_message(From, first_url, cleaned_text if cleaned_text else None)
-            
+
             # Send remaining images separately
             for url in image_urls[1:]:
                 send_media_message(From, url)
@@ -120,6 +120,7 @@ def process_and_send_response(From: str, response_text: str):
 def process_question(Body: str, From: str):
     logger.info("dify called")
     dify_key = config("DIFY_KEY")
+    dify_base_url = config("DIFY_BASE_URL")
     chat_client = ChatClient(dify_key)
     try:
         if not is_user_authorized(From):
@@ -132,7 +133,7 @@ def process_question(Body: str, From: str):
             send_message(From, "You have reached your message limit. Please try again later.")
             return
 
-        chat_client.base_url = "http://brightpath.koogle.sk/v1"
+        chat_client.base_url = dify_base_url
 
         # Get active conversation (less than 1 hour old)
         conversation_id = get_active_conversation(chat_client, From)
